@@ -5,5 +5,7 @@
 //! bootloader adapters above can stay pure config parsing.
 
 pub mod host;
+pub mod privilege;
 
 pub use host::Host;
+pub use privilege::Privileges;
