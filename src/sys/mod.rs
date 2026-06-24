@@ -4,6 +4,7 @@
 //! external helpers, and the atomic write primitive - lives here so the
 //! bootloader adapters above can stay pure config parsing.
 
+pub mod atomic;
 pub mod host;
 pub mod privilege;
 
