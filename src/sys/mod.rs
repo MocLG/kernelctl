@@ -6,6 +6,7 @@
 
 pub mod atomic;
 pub mod host;
+pub mod mounts;
 pub mod privilege;
 
 pub use host::Host;
