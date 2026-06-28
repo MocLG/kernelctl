@@ -5,6 +5,7 @@
 //! bootloader adapters above can stay pure config parsing.
 
 pub mod atomic;
+pub mod exec;
 pub mod host;
 pub mod mounts;
 pub mod privilege;
