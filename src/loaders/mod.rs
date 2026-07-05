@@ -7,6 +7,7 @@
 //! leftover syslinux directory still gets a sensible primary loader while
 //! keeping the other visible under `--all`.
 
+pub mod bls;
 pub mod efivars;
 pub mod scan;
 
