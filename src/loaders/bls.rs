@@ -181,23 +181,25 @@ pub fn to_boot_entry(
     entry
 }
 
-/// Rewrite the `options` line of an entry file, preserving everything else.
+/// Set a key in a BLS-syntax file, preserving everything else.
 ///
 /// Editing in place rather than regenerating the file keeps comments, key
-/// order and unknown keys intact - the file may well have been hand-written,
-/// and rewriting it wholesale would quietly discard the parts we do not model.
-pub fn rewrite_options(text: &str, new_options: &str) -> String {
+/// order and unknown keys intact - these files are often hand-written, and
+/// rewriting one wholesale would quietly discard the parts we do not model.
+///
+/// systemd-boot's `loader.conf` uses the same syntax, so this serves both.
+pub fn rewrite_key(text: &str, key: &str, value: &str) -> String {
     let mut out = Vec::new();
     let mut replaced = false;
 
     for line in text.lines() {
-        let is_options =
-            split_line(line).is_some_and(|(k, _)| k.eq_ignore_ascii_case("options"));
-        if is_options {
-            // The first options line becomes the new value; any further ones
-            // are dropped, since they used to concatenate onto it.
+        let matches_key = split_line(line).is_some_and(|(k, _)| k.eq_ignore_ascii_case(key));
+        if matches_key {
+            // The first occurrence becomes the new value; later ones are
+            // dropped, since for repeatable keys they used to concatenate
+            // onto it and would otherwise re-append the old content.
             if !replaced {
-                out.push(format!("options {new_options}"));
+                out.push(format!("{key} {value}"));
                 replaced = true;
             }
         } else {
@@ -205,14 +207,41 @@ pub fn rewrite_options(text: &str, new_options: &str) -> String {
         }
     }
 
-    // No options line to replace: append one.
     if !replaced {
-        out.push(format!("options {new_options}"));
+        out.push(format!("{key} {value}"));
     }
 
     let mut joined = out.join("\n");
     joined.push('\n');
     joined
+}
+
+/// Remove every occurrence of a key.
+pub fn remove_key(text: &str, key: &str) -> String {
+    let mut out: Vec<&str> = text
+        .lines()
+        .filter(|line| !split_line(line).is_some_and(|(k, _)| k.eq_ignore_ascii_case(key)))
+        .collect();
+    // Keep the file newline-terminated even when the last line was removed.
+    if out.last().is_some_and(|l| l.trim().is_empty()) {
+        out.pop();
+    }
+    let mut joined = out.join("\n");
+    joined.push('\n');
+    joined
+}
+
+/// Rewrite the `options` line of an entry file.
+pub fn rewrite_options(text: &str, new_options: &str) -> String {
+    rewrite_key(text, "options", new_options)
+}
+
+/// Read a single key's value from a BLS-syntax file.
+pub fn get_key(text: &str, key: &str) -> Option<String> {
+    text.lines()
+        .filter_map(split_line)
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))
+        .map(|(_, v)| v.to_string())
 }
 
 #[cfg(test)]

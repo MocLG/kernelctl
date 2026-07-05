@@ -10,6 +10,10 @@
 pub mod bls;
 pub mod efivars;
 pub mod scan;
+pub mod systemd_boot;
+
+#[cfg(test)]
+pub mod testsupport;
 
 use std::path::{Path, PathBuf};
 
