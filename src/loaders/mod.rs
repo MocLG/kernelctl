@@ -9,6 +9,7 @@
 
 pub mod bls;
 pub mod efivars;
+pub mod grubenv;
 pub mod scan;
 pub mod systemd_boot;
 
