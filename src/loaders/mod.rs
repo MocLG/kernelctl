@@ -11,6 +11,7 @@ pub mod bls;
 pub mod efivars;
 pub mod grub2;
 pub mod grubenv;
+pub mod limine;
 pub mod scan;
 pub mod systemd_boot;
 
