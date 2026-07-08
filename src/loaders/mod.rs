@@ -13,6 +13,7 @@ pub mod grub2;
 pub mod grubenv;
 pub mod limine;
 pub mod scan;
+pub mod syslinux;
 pub mod systemd_boot;
 
 #[cfg(test)]

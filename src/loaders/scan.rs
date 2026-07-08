@@ -50,7 +50,7 @@ impl BootRoots {
         let mounts = mounts::read_mounts().unwrap_or_default();
 
         let mut boot: Vec<PathBuf> = Vec::new();
-        let mut push = |p: PathBuf, boot: &mut Vec<PathBuf>| {
+        let push = |p: PathBuf, boot: &mut Vec<PathBuf>| {
             if p.is_dir() && !boot.contains(&p) {
                 boot.push(p);
             }
