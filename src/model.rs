@@ -17,9 +17,11 @@ use serde::{Deserialize, Serialize};
 use crate::util::hash::short_hash;
 
 /// CPU architecture a boot entry targets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Arch {
+    #[default]
+    Unknown,
     X86_64,
     X86,
     Aarch64,
@@ -28,7 +30,6 @@ pub enum Arch {
     Loongarch64,
     Ppc64le,
     S390x,
-    Unknown,
 }
 
 impl Arch {
@@ -531,7 +532,35 @@ impl KernelVersion {
             .fold(stem, |acc, s| acc.strip_suffix(s).unwrap_or(acc));
         // `initramfs-6.11.0-generic-fallback.img` -> drop the trailing tag.
         let stem = stem.strip_suffix("-fallback").unwrap_or(stem);
-        KernelVersion::parse(stem)
+        // A conventional image name puts the version first once the prefix is
+        // gone. Names that do not - UKIs such as `arch-linux-6.12.1.efi`, or
+        // menu titles - fall back to searching for it.
+        KernelVersion::parse(stem).or_else(|| KernelVersion::find_in(stem))
+    }
+
+    /// Find the first version-like substring anywhere in a name.
+    ///
+    /// UKI filenames and boot menu titles put the version in the middle
+    /// (`arch-linux-6.12.1.efi`, `Ubuntu, with Linux 6.11.0-9-generic`), so a
+    /// prefix-anchored parse misses it entirely.
+    pub fn find_in(name: &str) -> Option<KernelVersion> {
+        let bytes = name.as_bytes();
+        for i in 0..bytes.len() {
+            // Only consider the start of a digit run, so the scan does not
+            // retry at every digit of the same number.
+            if !bytes[i].is_ascii_digit() || (i > 0 && bytes[i - 1].is_ascii_digit()) {
+                continue;
+            }
+            if let Some(v) = KernelVersion::parse(&name[i..]) {
+                // Require at least `major.minor`: a lone number is far more
+                // likely to be a date stamp, an EFI arch suffix such as the
+                // 64 in bootx64, or part of a device name.
+                if v.numbers.len() >= 2 {
+                    return Some(v);
+                }
+            }
+        }
+        None
     }
 }
 
@@ -694,6 +723,25 @@ mod tests {
         assert_eq!(KernelVersion::from_filename("initrd.img-6.8.0-40-generic").unwrap().raw, "6.8.0-40-generic");
         assert_eq!(KernelVersion::from_filename("initramfs-6.6.1-arch1.img").unwrap().raw, "6.6.1-arch1");
         assert!(KernelVersion::from_filename("vmlinuz").is_none());
+    }
+
+    #[test]
+    fn finds_versions_embedded_mid_name() {
+        // UKI filenames and menu titles put the version in the middle.
+        assert_eq!(KernelVersion::from_filename("arch-linux-6.12.1").unwrap().raw, "6.12.1");
+        assert_eq!(
+            KernelVersion::find_in("Ubuntu, with Linux 6.11.0-9-generic").unwrap().raw,
+            "6.11.0-9-generic"
+        );
+    }
+
+    #[test]
+    fn ignores_lone_numbers_that_are_not_versions() {
+        // The 64 in an EFI arch suffix, and a bare date stamp, are not
+        // versions; requiring major.minor rules both out.
+        assert!(KernelVersion::find_in("bootx64.efi").is_none());
+        assert!(KernelVersion::find_in("Arch Linux 20260801").is_none());
+        assert!(KernelVersion::find_in("no digits here").is_none());
     }
 
     #[test]
