@@ -10,6 +10,8 @@
 pub mod bls;
 pub mod efivars;
 pub mod grub2;
+pub mod efistub;
+pub mod grub_legacy;
 pub mod grubenv;
 pub mod lilo;
 pub mod limine;
@@ -17,6 +19,7 @@ pub mod refind;
 pub mod scan;
 pub mod syslinux;
 pub mod systemd_boot;
+pub mod uki;
 
 #[cfg(test)]
 pub mod testsupport;
