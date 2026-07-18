@@ -7,6 +7,7 @@
 //! leftover syslinux directory still gets a sensible primary loader while
 //! keeping the other visible under `--all`.
 
+pub mod barebox;
 pub mod bls;
 pub mod efivars;
 pub mod grub2;
@@ -16,6 +17,7 @@ pub mod grubenv;
 pub mod lilo;
 pub mod limine;
 pub mod refind;
+pub mod registry;
 pub mod scan;
 pub mod syslinux;
 pub mod systemd_boot;
