@@ -353,6 +353,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tar",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]
