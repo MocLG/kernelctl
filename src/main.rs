@@ -6,6 +6,7 @@ mod error;
 mod loaders;
 mod model;
 mod sys;
+mod tui;
 mod ui;
 mod util;
 
@@ -41,7 +42,7 @@ fn run(cli: Cli) -> Result<()> {
     // primary mode.
     let Some(command) = cli.command else {
         let app = App::new(cli.global);
-        return tui_placeholder(&app);
+        return tui::run(&app);
     };
 
     let app = App::new(cli.global);
@@ -61,11 +62,6 @@ fn run(cli: Cli) -> Result<()> {
         Command::Backup { output } => commands::backup::backup(&app, output.as_deref()),
         Command::Restore { archive, list } => commands::backup::restore(&app, &archive, list),
         Command::Help => commands::help::run(&app),
-        Command::Tui => tui_placeholder(&app),
+        Command::Tui => tui::run(&app),
     }
-}
-
-/// Stand-in until the interactive interface lands.
-fn tui_placeholder(app: &App) -> Result<()> {
-    commands::status::run(app)
 }
