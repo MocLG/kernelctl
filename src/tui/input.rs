@@ -27,10 +27,6 @@ impl TextInput {
         self.value
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.value.is_empty()
-    }
-
     /// Cursor position measured in characters, for placing the terminal cursor.
     pub fn cursor_column(&self) -> usize {
         self.value[..self.cursor].chars().count()
@@ -39,11 +35,6 @@ impl TextInput {
     pub fn insert(&mut self, c: char) {
         self.value.insert(self.cursor, c);
         self.cursor += c.len_utf8();
-    }
-
-    pub fn insert_str(&mut self, s: &str) {
-        self.value.insert_str(self.cursor, s);
-        self.cursor += s.len();
     }
 
     /// Delete the character before the cursor.
@@ -103,11 +94,6 @@ impl TextInput {
         self.cursor = self.value.len();
     }
 
-    pub fn clear(&mut self) {
-        self.value.clear();
-        self.cursor = 0;
-    }
-
     /// Start of the word before the cursor: skip any run of spaces, then the
     /// word itself.
     fn word_start(&self) -> usize {
@@ -160,11 +146,11 @@ mod tests {
     fn inserts_and_deletes() {
         let mut input = TextInput::new("ro");
         input.insert(' ');
-        input.insert_str("quiet");
-        assert_eq!(input.value(), "ro quiet");
+        input.insert('q');
+        assert_eq!(input.value(), "ro q");
 
         input.backspace();
-        assert_eq!(input.value(), "ro quie");
+        assert_eq!(input.value(), "ro ");
     }
 
     #[test]
@@ -239,7 +225,7 @@ mod tests {
         let mut input = TextInput::default();
         input.backspace();
         input.delete();
-        assert!(input.is_empty());
+        assert_eq!(input.value(), "");
     }
 
     #[test]

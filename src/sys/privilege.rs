@@ -5,8 +5,6 @@
 //! rather than letting a config write fail halfway through, mutating commands
 //! call [`Privileges::require`] up front and exit with an actionable message.
 
-use std::path::Path;
-
 use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,24 +49,6 @@ impl Privileges {
         }
     }
 
-    /// Can we realistically modify this path? Used to warn before starting a
-    /// multi-file operation rather than failing on the third file.
-    pub fn can_write(&self, path: &Path) -> bool {
-        if self.root {
-            return true;
-        }
-        // An existing file is writable if access(2) says so; for a new file the
-        // question is whether the parent directory is writable.
-        let target = if path.exists() {
-            path
-        } else {
-            match path.parent() {
-                Some(p) => p,
-                None => return false,
-            }
-        };
-        rustix::fs::access(target, rustix::fs::Access::WRITE_OK).is_ok()
-    }
 }
 
 #[cfg(test)]
@@ -90,12 +70,6 @@ mod tests {
 
         let root = Privileges { root: true, uid: 0, via_sudo: false };
         assert!(root.require("set-default").is_ok());
-    }
-
-    #[test]
-    fn root_can_write_anywhere() {
-        let root = Privileges { root: true, uid: 0, via_sudo: false };
-        assert!(root.can_write(Path::new("/boot/does-not-exist")));
     }
 
     #[test]

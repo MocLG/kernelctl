@@ -45,11 +45,6 @@ impl LoadOption {
     pub fn is_active(&self) -> bool {
         self.attributes & LOAD_OPTION_ACTIVE != 0
     }
-
-    /// `Boot0003`, the name of the variable this came from.
-    pub fn var_name(&self) -> String {
-        format!("Boot{:04X}", self.number)
-    }
 }
 
 /// Decode an `EFI_LOAD_OPTION`.
@@ -379,7 +374,7 @@ mod tests {
         assert_eq!(opt.description, "Arch Linux");
         assert_eq!(opt.file_path.as_deref(), Some("\\EFI\\Linux\\arch.efi"));
         assert!(opt.is_active());
-        assert_eq!(opt.var_name(), "Boot0001");
+        assert_eq!(opt.number, 1);
     }
 
     #[test]

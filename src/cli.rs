@@ -211,6 +211,13 @@ pub enum Command {
         list: bool,
     },
 
+    /// Delete a boot entry from the bootloader's configuration.
+    Remove {
+        /// Entry id, kernel version, or part of a title.
+        #[arg(value_name = "ID-OR-PATTERN")]
+        pattern: String,
+    },
+
     /// Show every bootloader detected on this system.
     Loaders,
 
@@ -345,6 +352,12 @@ mod tests {
         let cli =
             Cli::try_parse_from(["kernelctl", "--loader", "systemd-boot", "list"]).unwrap();
         assert_eq!(cli.global.loader, Some(LoaderName::SystemdBoot));
+    }
+
+    #[test]
+    fn parses_remove() {
+        let cli = Cli::try_parse_from(["kernelctl", "remove", "old.conf"]).unwrap();
+        assert!(matches!(cli.command, Some(Command::Remove { .. })));
     }
 
     #[test]

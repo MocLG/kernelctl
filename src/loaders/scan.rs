@@ -31,13 +31,6 @@ const STANDARD_BOOT_DIRS: &[&str] = &[
     "/mnt/boot",
 ];
 
-/// Directories holding loader configuration outside the boot partition.
-pub const CONFIG_DIRS: &[&str] = &[
-    "/etc",
-    "/etc/default",
-    "/etc/kernel",
-];
-
 impl BootRoots {
     /// Probe the system for boot roots.
     ///
@@ -82,40 +75,6 @@ impl BootRoots {
         }
 
         BootRoots { boot, esp, mounts }
-    }
-
-    /// Every candidate directory, boot roots first then config directories.
-    pub fn all_dirs(&self) -> Vec<PathBuf> {
-        let mut out = self.boot.clone();
-        for d in CONFIG_DIRS {
-            let p = PathBuf::from(d);
-            if p.is_dir() && !out.contains(&p) {
-                out.push(p);
-            }
-        }
-        out
-    }
-
-    /// Join `relative` onto each boot root and keep the paths that exist.
-    ///
-    /// This is the workhorse behind adapter detection: "is there a
-    /// `loader/loader.conf` under any boot root?" is one call.
-    pub fn find(&self, relative: &str) -> Vec<PathBuf> {
-        self.boot
-            .iter()
-            .map(|root| root.join(relative))
-            .filter(|p| p.exists())
-            .collect()
-    }
-
-    /// First existing match for `relative` under any boot root.
-    pub fn find_first(&self, relative: &str) -> Option<PathBuf> {
-        self.boot.iter().map(|root| root.join(relative)).find(|p| p.exists())
-    }
-
-    /// First existing path from a list of absolute candidates.
-    pub fn first_existing(candidates: &[&str]) -> Option<PathBuf> {
-        candidates.iter().map(PathBuf::from).find(|p| p.exists())
     }
 
     /// Is `path` on a filesystem mounted read-only? Reported as a pre-flight
@@ -171,27 +130,9 @@ mod tests {
     }
 
     #[test]
-    fn find_returns_only_existing_paths() {
-        let tmp = TmpDir::new("find");
-        fs::create_dir_all(tmp.0.join("loader/entries")).unwrap();
-        fs::write(tmp.0.join("loader/loader.conf"), b"timeout 4\n").unwrap();
-
-        let roots = BootRoots::discover(std::slice::from_ref(&tmp.0));
-        assert_eq!(roots.find_first("loader/loader.conf"), Some(tmp.0.join("loader/loader.conf")));
-        assert!(roots.find_first("loader/nope.conf").is_none());
-        assert!(roots.find("loader/loader.conf").len() >= 1);
-    }
-
-    #[test]
     fn discovery_never_duplicates_a_root() {
         let roots = BootRoots::discover(&[PathBuf::from("/boot"), PathBuf::from("/boot")]);
         let count = roots.boot.iter().filter(|p| *p == Path::new("/boot")).count();
         assert!(count <= 1, "roots must be deduplicated");
-    }
-
-    #[test]
-    fn all_dirs_includes_config_directories() {
-        let roots = BootRoots::discover(&[]);
-        assert!(roots.all_dirs().contains(&PathBuf::from("/etc")));
     }
 }

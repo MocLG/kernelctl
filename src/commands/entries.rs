@@ -92,8 +92,8 @@ pub fn details(entry: &BootEntry) -> Vec<(String, String)> {
         if entry.cmdline.is_empty() { "-".into() } else { entry.cmdline.clone() },
     ));
 
-    if let Some(size) = entry.kernel_size {
-        rows.push(("size".into(), time::format_bytes(size)));
+    if entry.kernel_size.is_some() {
+        rows.push(("size".into(), size(entry)));
     }
     if let Some(t) = entry.build_time {
         rows.push((

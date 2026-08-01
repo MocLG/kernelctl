@@ -38,8 +38,6 @@ const VAR_NEXT: &str = "next_entry";
 const DEFAULT_GRUB: &str = "/etc/default/grub";
 
 pub struct Grub2 {
-    /// `<root>/grub` or `<root>/grub2`.
-    dir: PathBuf,
     cfg: PathBuf,
     env: PathBuf,
     /// Partition the paths inside grub.cfg are relative to.
@@ -348,6 +346,7 @@ impl Grub2 {
             for name in ["grub", "grub2"] {
                 let dir = root.join(name);
                 let cfg = dir.join("grub.cfg");
+                let _ = &dir;
                 if !cfg.is_file() {
                     continue;
                 }
@@ -357,7 +356,6 @@ impl Grub2 {
                 // a lone config file.
                 let confidence = if env.exists() { 92 } else { 80 };
                 return Some(Grub2 {
-                    dir,
                     cfg,
                     env,
                     boot_root: root.clone(),
@@ -879,7 +877,7 @@ menuentry 'Windows Boot Manager' $menuentry_id_option 'osprober-efi-1234' {
         let tree = TempTree::new("grub-fedora");
         tree.file("grub2/grub.cfg", CFG);
         let loader = Grub2::detect(&tree.roots()).expect("grub2/ layout detected");
-        assert!(loader.dir.ends_with("grub2"));
+        assert!(loader.cfg.ends_with("grub2/grub.cfg"));
         assert_eq!(loader.confidence, 80);
     }
 

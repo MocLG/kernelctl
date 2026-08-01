@@ -216,21 +216,6 @@ pub fn rewrite_key(text: &str, key: &str, value: &str) -> String {
     joined
 }
 
-/// Remove every occurrence of a key.
-pub fn remove_key(text: &str, key: &str) -> String {
-    let mut out: Vec<&str> = text
-        .lines()
-        .filter(|line| !split_line(line).is_some_and(|(k, _)| k.eq_ignore_ascii_case(key)))
-        .collect();
-    // Keep the file newline-terminated even when the last line was removed.
-    if out.last().is_some_and(|l| l.trim().is_empty()) {
-        out.pop();
-    }
-    let mut joined = out.join("\n");
-    joined.push('\n');
-    joined
-}
-
 /// Rewrite the `options` line of an entry file.
 pub fn rewrite_options(text: &str, new_options: &str) -> String {
     rewrite_key(text, "options", new_options)

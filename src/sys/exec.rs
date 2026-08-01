@@ -42,15 +42,10 @@ pub fn require(tool: &str, hint: &str) -> Result<PathBuf> {
     })
 }
 
-/// Captured result of a successful helper invocation.
-#[derive(Debug, Clone)]
-pub struct Output {
-    pub stdout: String,
-    pub stderr: String,
-}
-
-/// Run a helper and capture its output, turning a non-zero exit into an error.
-pub fn run<I, S>(tool: &str, args: I) -> Result<Output>
+/// Run a helper and capture its standard output, turning a non-zero exit into
+/// an error. Standard error is only of interest when the tool failed, so it is
+/// carried on the error rather than returned on success.
+pub fn run<I, S>(tool: &str, args: I) -> Result<String>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
@@ -73,7 +68,7 @@ where
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
 
     if out.status.success() {
-        Ok(Output { stdout, stderr })
+        Ok(stdout)
     } else {
         Err(Error::ToolFailed {
             tool: tool.to_string(),
@@ -84,15 +79,6 @@ where
             stderr,
         })
     }
-}
-
-/// Run a helper only to learn whether it succeeds.
-pub fn probe<I, S>(tool: &str, args: I) -> bool
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<OsStr>,
-{
-    run(tool, args).is_ok()
 }
 
 #[cfg(test)]
@@ -118,8 +104,7 @@ mod tests {
 
     #[test]
     fn runs_a_command_and_captures_stdout() {
-        let out = run("sh", ["-c", "printf hello"]).unwrap();
-        assert_eq!(out.stdout, "hello");
+        assert_eq!(run("sh", ["-c", "printf hello"]).unwrap(), "hello");
     }
 
     #[test]
@@ -139,11 +124,5 @@ mod tests {
         let err = require("kernelctl-not-real", "install it").unwrap_err();
         assert!(err.is_not_found());
         assert_eq!(err.hint().as_deref(), Some("install it"));
-    }
-
-    #[test]
-    fn probe_reports_success_state() {
-        assert!(probe("sh", ["-c", "true"]));
-        assert!(!probe("sh", ["-c", "false"]));
     }
 }

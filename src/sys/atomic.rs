@@ -123,19 +123,6 @@ fn sync_dir(dir: &Path) {
     }
 }
 
-/// Copy `<name>.bak` back over `<name>`, for undoing a change.
-pub fn restore_backup(path: &Path) -> Result<()> {
-    let bak = backup_path_for(path);
-    if !bak.exists() {
-        return Err(Error::validation(format!("no backup at {}", bak.display())));
-    }
-    let contents = fs::read(&bak).map_err(|e| Error::io(&bak, e))?;
-    // Suppress the backup here: the current file is the bad one, and copying it
-    // over the good `.bak` would destroy the only clean copy.
-    write_atomic_opts(path, &contents, false)?;
-    Ok(())
-}
-
 /// Read a file, attaching the path to any I/O error.
 pub fn read_to_string(path: &Path) -> Result<String> {
     // from_utf8_lossy rather than a hard error: a stray non-UTF-8 byte in a
@@ -222,28 +209,6 @@ mod tests {
             .filter(|n| n.contains(".tmp"))
             .collect();
         assert!(strays.is_empty(), "temp files left behind: {strays:?}");
-    }
-
-    #[test]
-    fn restores_from_backup() {
-        let dir = TmpDir::new("restore");
-        let target = dir.path("extlinux.conf");
-        fs::write(&target, b"good\n").unwrap();
-        write_atomic(&target, b"bad\n").unwrap();
-
-        restore_backup(&target).unwrap();
-
-        assert_eq!(fs::read_to_string(&target).unwrap(), "good\n");
-        // The backup must survive the restore so it can be applied twice.
-        assert_eq!(fs::read_to_string(backup_path_for(&target)).unwrap(), "good\n");
-    }
-
-    #[test]
-    fn restore_without_backup_is_an_error() {
-        let dir = TmpDir::new("norestore");
-        let target = dir.path("nothing.conf");
-        fs::write(&target, b"x\n").unwrap();
-        assert!(restore_backup(&target).is_err());
     }
 
     #[test]

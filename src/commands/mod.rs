@@ -98,11 +98,19 @@ impl App {
             return Ok(entries);
         }
 
-        let loader = self.loader()?;
-        let mut entries = loader.entries(&ctx)?;
-        crate::loaders::annotate(&mut entries, &self.host);
-        crate::loaders::sort_entries(&mut entries);
-        Ok(entries)
+        // With no --loader override this is exactly the primary loader's
+        // entries, so defer to discovery rather than repeating the
+        // annotate-and-sort step.
+        match self.args.loader {
+            None => self.discovery.entries(&ctx),
+            Some(_) => {
+                let loader = self.loader()?;
+                let mut entries = loader.entries(&ctx)?;
+                crate::loaders::annotate(&mut entries, &self.host);
+                crate::loaders::sort_entries(&mut entries);
+                Ok(entries)
+            }
+        }
     }
 
     /// Resolve a pattern against the current entry set.

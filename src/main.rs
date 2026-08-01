@@ -51,6 +51,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Status => commands::status::run(&app),
         Command::List { pattern, long } => commands::list::run(&app, pattern.as_deref(), long),
         Command::Loaders => commands::list::loaders(&app),
+        Command::Remove { pattern } => commands::set::remove(&app, &pattern),
         Command::SetDefault { pattern } => commands::set::set_default(&app, &pattern),
         Command::SetNext { pattern, clear } => {
             commands::set::set_next(&app, pattern.as_deref(), clear)

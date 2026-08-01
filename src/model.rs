@@ -225,10 +225,6 @@ impl EntryFlags {
         }
     }
 
-    pub fn is_empty(self) -> bool {
-        self.0 == 0
-    }
-
     /// Badges in display order, most significant to the user first.
     pub fn badges(self) -> Vec<&'static str> {
         let mut out = Vec::new();
@@ -366,11 +362,6 @@ impl BootEntry {
         format!("{}-{}", loader.as_str(), short_hash(material.as_bytes()))
     }
 
-    /// Recompute the id after `source` or `native_id` changed.
-    pub fn refresh_id(&mut self) {
-        self.id = Self::compute_id(self.loader, &self.source, &self.native_id);
-    }
-
     pub fn is_default(&self) -> bool {
         self.flags.contains(EntryFlags::DEFAULT)
     }
@@ -401,14 +392,6 @@ impl BootEntry {
     /// quoting the kernel itself honours.
     pub fn cmdline_params(&self) -> Vec<String> {
         split_cmdline(&self.cmdline)
-    }
-
-    /// Value of a `key=value` kernel parameter, if present.
-    pub fn cmdline_get(&self, key: &str) -> Option<String> {
-        self.cmdline_params().into_iter().find_map(|p| {
-            let (k, v) = p.split_once('=')?;
-            (k == key).then(|| v.to_string())
-        })
     }
 
     /// Does this entry match a user-supplied pattern? Accepts the full id, an
@@ -748,14 +731,6 @@ mod tests {
     fn splits_cmdline_respecting_quotes() {
         let parts = split_cmdline(r#"root=UUID=abc ro quiet opt="a b" splash"#);
         assert_eq!(parts, vec!["root=UUID=abc", "ro", "quiet", r#"opt="a b""#, "splash"]);
-    }
-
-    #[test]
-    fn cmdline_get_reads_named_parameter() {
-        let mut e = BootEntry::new(LoaderKind::Grub2, "/boot/grub/grub.cfg", "gnulinux", "Linux");
-        e.cmdline = "root=UUID=deadbeef ro quiet".into();
-        assert_eq!(e.cmdline_get("root").as_deref(), Some("UUID=deadbeef"));
-        assert_eq!(e.cmdline_get("nosuch"), None);
     }
 
     #[test]

@@ -87,10 +87,12 @@ fn draw_header(frame: &mut Frame, area: Rect, tui: &Tui) {
         .map(|l| l.kind().display_name().to_string())
         .unwrap_or_else(|_| "no bootloader".to_string());
 
-    let (privilege, privilege_style) = if tui.app.privileges.root {
-        ("[ROOT]", Style::new().fg(Color::Green).add_modifier(Modifier::BOLD))
+    // Reuse the CLI's badge text so the two interfaces cannot disagree.
+    let privilege = tui.app.privileges.badge();
+    let privilege_style = if tui.app.privileges.root {
+        Style::new().fg(Color::Green).add_modifier(Modifier::BOLD)
     } else {
-        ("[USER]", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)
     };
 
     let label = Style::new().fg(Color::DarkGray);

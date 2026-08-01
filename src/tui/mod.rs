@@ -23,7 +23,7 @@ use crate::commands::App;
 use crate::error::{Error, Result};
 
 use input::TextInput;
-use state::{Modal, PendingAction, Tui};
+use state::{Modal, Tui};
 
 type Backend = CrosstermBackend<Stdout>;
 
@@ -347,7 +347,7 @@ mod tests {
         assert_eq!(tui.visible.len(), 2);
 
         handle_key(&mut tui, press(KeyCode::Char('/')));
-        assert!(tui.modal.captures_text());
+        assert!(tui.modal.is_open());
 
         for c in "Older".chars() {
             handle_key(&mut tui, press(KeyCode::Char(c)));
@@ -396,7 +396,7 @@ mod tests {
         tui.cursor = target;
 
         handle_key(&mut tui, press(KeyCode::Char('e')));
-        assert!(tui.modal.captures_text());
+        assert!(tui.modal.is_open());
 
         for c in " debug".chars() {
             handle_key(&mut tui, press(KeyCode::Char(c)));

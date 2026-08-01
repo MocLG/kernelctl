@@ -126,6 +126,50 @@ pub fn set_next(app: &App, pattern: Option<&str>, clear: bool) -> Result<()> {
     Ok(())
 }
 
+/// `kernelctl remove` - delete an entry from the bootloader's configuration.
+pub fn remove(app: &App, pattern: &str) -> Result<()> {
+    let entry = app.resolve(pattern)?;
+    let loader = app.loader()?;
+
+    require(loader, Capabilities::REMOVE_ENTRY, "removing entries")?;
+
+    // Removing the entry the machine currently boots leaves the bootloader
+    // pointing at nothing, so it takes an explicit confirmation of its own.
+    if entry.is_default() {
+        super::warn(&format!("'{}' is the current default boot entry", entry.title));
+    }
+    if entry.is_running() {
+        super::warn("this entry corresponds to the running kernel");
+    }
+
+    println!("{}", style::heading("Would remove"));
+    println!("{}", super::entries::render_details(&entry, "  "));
+    println!();
+
+    if app.args.dry_run {
+        dry_run_notice(&format!("remove the entry '{}'", entry.title));
+        return Ok(());
+    }
+
+    if !app.confirm(&format!("Delete the boot entry '{}'?", entry.title))? {
+        println!("cancelled");
+        return Ok(());
+    }
+
+    let outcomes = loader.remove_entry(&app.context(), &entry)?;
+
+    success(&format!("removed boot entry {}", style::bold(&entry.title)));
+    // The entry is gone but its kernel and modules are not.
+    super::note_line(
+        "the kernel and initramfs files it referenced are still on disk; \
+         `kernelctl clean` removes those",
+    );
+    app.report_writes(&outcomes);
+    app.print_note(loader);
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

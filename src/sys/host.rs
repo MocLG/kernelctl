@@ -5,7 +5,7 @@
 //! listing in particular) are expensive enough that re-reading them per entry
 //! would show up in the TUI's redraw path.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::model::{Arch, KernelVersion};
 
@@ -25,8 +25,6 @@ pub struct Host {
     /// True when the firmware booted this system via UEFI. Determines whether
     /// EFI-only bootloaders are even worth probing.
     pub is_efi: bool,
-    /// True when EFI variables are mounted and readable.
-    pub efivars_available: bool,
     /// Distribution name from os-release, if readable.
     pub distro: Option<String>,
 }
@@ -44,10 +42,6 @@ impl Host {
         // /sys/firmware/efi only exists when the kernel booted via UEFI, which
         // makes its presence the canonical EFI test.
         let is_efi = Path::new("/sys/firmware/efi").is_dir();
-        let efivars_available = is_efi
-            && std::fs::read_dir("/sys/firmware/efi/efivars")
-                .map(|mut d| d.next().is_some())
-                .unwrap_or(false);
 
         Host {
             kernel_version: KernelVersion::parse(&kernel_release),
@@ -56,14 +50,8 @@ impl Host {
             kernel_release,
             machine,
             is_efi,
-            efivars_available,
             distro: read_os_release_name(),
         }
-    }
-
-    /// The module directory for the running kernel.
-    pub fn running_modules_dir(&self) -> PathBuf {
-        Path::new("/lib/modules").join(&self.kernel_release)
     }
 
     /// Does this kernel release string refer to the running kernel? Compares

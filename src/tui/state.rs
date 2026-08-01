@@ -46,15 +46,6 @@ impl Modal {
     pub fn is_open(&self) -> bool {
         !matches!(self, Modal::None)
     }
-
-    /// Does this modal consume text input? Determines whether a plain
-    /// keystroke edits a field or triggers a shortcut.
-    pub fn captures_text(&self) -> bool {
-        matches!(
-            self,
-            Modal::Filter(_) | Modal::EditCmdline { .. } | Modal::Timeout(_)
-        )
-    }
 }
 
 /// An action deferred until the user confirms it.
@@ -603,7 +594,6 @@ mod tests {
             }
             _ => panic!("the editor should be open"),
         }
-        assert!(tui.modal.captures_text());
     }
 
     #[test]
@@ -672,16 +662,9 @@ mod tests {
     }
 
     #[test]
-    fn modal_state_reports_whether_it_captures_text() {
+    fn modal_open_state_is_reported() {
         assert!(!Modal::None.is_open());
         assert!(Modal::Help.is_open());
-        assert!(!Modal::Help.captures_text());
-        assert!(Modal::Filter(TextInput::default()).captures_text());
-        // A confirmation reads y/n as shortcuts, not as text.
-        assert!(!Modal::Confirm {
-            prompt: String::new(),
-            action: PendingAction::Backup
-        }
-        .captures_text());
+        assert!(Modal::Filter(TextInput::default()).is_open());
     }
 }

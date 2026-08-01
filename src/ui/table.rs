@@ -65,14 +65,6 @@ impl Table {
         self.rows.push(row);
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.rows.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.rows.len()
-    }
-
     /// Natural width of each column: the widest cell, header included.
     fn natural_widths(&self) -> Vec<usize> {
         self.columns
@@ -255,7 +247,6 @@ mod tests {
     #[test]
     fn handles_an_empty_table() {
         let t = Table::new(vec![Column::new("id"), Column::new("title")]);
-        assert!(t.is_empty());
         // Just the header row.
         assert_eq!(t.render(80).lines().count(), 1);
     }
