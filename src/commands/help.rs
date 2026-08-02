@@ -46,6 +46,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("clean", "remove kernels and modules no boot entry references"),
     ("backup", "archive bootloader configuration to a timestamped .tar.gz"),
     ("restore <FILE>", "restore configuration from a backup archive"),
+    ("remove <ID>", "delete a boot entry from the bootloader's configuration"),
     ("help", "this screen"),
 ];
 
@@ -176,9 +177,10 @@ mod tests {
     #[test]
     fn documents_every_core_command() {
         let text: String = COMMANDS.iter().map(|(c, _)| *c).collect::<Vec<_>>().join(" ");
-        for required in
-            ["status", "list", "set-default", "set-next", "clean", "backup", "restore", "diff"]
-        {
+        for required in [
+            "status", "list", "set-default", "set-next", "clean", "backup", "restore", "diff",
+            "timeout", "cmdline", "remove", "loaders",
+        ] {
             assert!(text.contains(required), "{required} is not documented");
         }
     }
