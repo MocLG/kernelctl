@@ -1,3 +1,22 @@
+/*
+ * kernelctl — unified kernel and boot configuration management across Linux bootloaders.
+ * Copyright (C) 2026 Luka Gejak
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License, version 3, as published
+ * by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <https://www.gnu.org/licenses/>.
+ *
+ * Alternatively, this file is available under a commercial licence that lifts
+ * the obligations of the GPL. Enquiries: lukagejak5@gmail.com
+ */
 //! Scratch boot trees for adapter tests.
 //!
 //! The adapters are mostly filesystem shape detection, so testing them means
@@ -6,7 +25,7 @@
 
 #![cfg(test)]
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::loaders::{BootRoots, Context};
 use crate::sys::{Host, Privileges};
@@ -109,9 +128,4 @@ impl Fixture {
 /// file rather than an empty one.
 pub fn fake_kernel(tree: &TempTree, relative: &str) -> PathBuf {
     tree.file(relative, "\u{7f}ELF fake kernel image for tests\n")
-}
-
-/// Assert that a path exists, with a message naming it.
-pub fn assert_exists(path: &Path) {
-    assert!(path.exists(), "expected {} to exist", path.display());
 }

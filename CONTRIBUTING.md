@@ -44,9 +44,9 @@ cargo run -- --boot-dir /path/to/fake-esp list
   verify the kernel and initramfs exist on disk. If you add an adapter, wire it into
   `loaders::registry` with an honest confidence score and declare only the capabilities it
   genuinely has — advertising one that does not work is worse than not having it.
-- **Keep the licence header.** New source files carry the same
-  `SPDX-License-Identifier: GPL-3.0-only` tag as the existing ones; don't remove them from
-  existing files.
+- **Keep the licence header.** Every `.rs` file carries the GPL/commercial notice at the
+  top, and build files carry a two-line `SPDX-License-Identifier: GPL-3.0-only` tag. New
+  files need the same; don't remove them from existing ones.
 - **Match the surrounding style.** Comments here explain *why* a decision was made,
   especially where the obvious approach is wrong — see the notes on GRUB's fixed-size
   environment block, syslinux's inverted `TIMEOUT 0`, and why efivarfs needs a single
