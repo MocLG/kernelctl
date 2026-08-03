@@ -1,5 +1,7 @@
 # kernelctl
 
+[![CI](https://github.com/MocLG/kernelctl/actions/workflows/ci.yml/badge.svg)](https://github.com/MocLG/kernelctl/actions/workflows/ci.yml)
+
 A single-binary CLI and interactive TUI for managing kernels and boot entries,
 across whichever bootloader a Linux system actually uses. Runs on x86_64 and
 ARM (ARMv7 / AArch64).
@@ -16,6 +18,29 @@ systemd-boot-113biz  Arch Linux             6.12.1-arch1-1  2026-08-08  [DEFAULT
 systemd-boot-rf3p9v  Arch Linux (fallback)  6.12.1-arch1-1  2026-08-08  [RECOVERY]
 systemd-boot-9ijd9j  Older kernel           6.9.3-arch1-1   2026-06-14
 ```
+
+## Install
+
+Prebuilt binaries are attached to every [release](../../releases). The **musl** builds are
+statically linked and depend on nothing at all, so they run on any distribution regardless
+of its glibc version:
+
+```sh
+curl -LO https://github.com/MocLG/kernelctl/releases/latest/download/kernelctl-<version>-x86_64-unknown-linux-musl.tar.gz
+tar xzf kernelctl-*.tar.gz
+sudo install -m755 kernelctl-*/kernelctl /usr/local/bin/kernelctl
+kernelctl status
+```
+
+Builds are published for `x86_64` and `aarch64` (glibc and musl) and for `armv7` (musl).
+Verify a download against the `SHA256SUMS` file attached to the release:
+
+```sh
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+Every push also uploads a binary to its CI run, which is useful for testing an unreleased
+change; those expire after 14 days, so prefer a release for anything permanent.
 
 ## Supported bootloaders
 
@@ -125,6 +150,9 @@ Every action drives the same code the CLI does, so the two cannot diverge.
 cargo build --release      # target/release/kernelctl
 cargo test
 ```
+
+CI builds and tests natively on x86_64 and aarch64, cross-builds armv7, and checks the
+declared MSRV, so a change that breaks any of those is caught before it lands.
 
 Requires Rust 1.85 or newer (edition 2024). The release profile uses fat LTO, one codegen
 unit, abort-on-panic and stripped symbols for a small, fast binary.

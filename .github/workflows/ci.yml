@@ -1,0 +1,137 @@
+# SPDX-FileCopyrightText: 2026 Luka Gejak
+# SPDX-License-Identifier: GPL-3.0-only
+
+name: CI
+
+on:
+  push:
+    branches: ['**']
+    # Tags are handled by release.yml, which does the same builds and more.
+    tags-ignore: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch makes the previous run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    # Both architectures the project claims to support are built and tested
+    # natively. Cross-compiling would prove it links, not that it runs.
+    name: test (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.arch }}
+
+      # --locked so CI builds exactly what Cargo.lock pins. Without it a
+      # yanked or newly published dependency can change what is tested.
+      - name: Test
+        run: cargo test --locked --all-targets
+
+      - name: Build
+        run: cargo build --locked --release
+
+      # CONTRIBUTING.md promises a warning-free build, so it is enforced here.
+      # RUSTFLAGS=-D warnings is deliberately not used: it would also apply to
+      # dependencies, failing the build on warnings that are not ours to fix.
+      # Cargo only prints warnings for workspace members, so grepping its
+      # output checks our code alone.
+      - name: Build must be warning-free
+        run: |
+          set -o pipefail
+          cargo build --locked --all-targets 2>&1 | tee build.log
+          if grep -qE "generated [0-9]+ warning" build.log; then
+            echo "::error::build produced warnings"
+            grep -E "^warning" build.log || true
+            exit 1
+          fi
+
+      # The unit tests never touch a real bootloader, so this is the only
+      # place the shipped binary is actually executed.
+      - name: Smoke-test the binary
+        run: |
+          ./target/release/kernelctl --version
+          ./target/release/kernelctl help > /dev/null
+          ./target/release/kernelctl loaders || true
+
+      # Proves the adapters work end to end against a real config file
+      # without needing a bootloader on the runner.
+      - name: End-to-end against a synthetic boot tree
+        run: |
+          set -euo pipefail
+          BOOT="$(mktemp -d)"
+          mkdir -p "$BOOT/loader/entries" "$BOOT/EFI/systemd"
+          printf 'default arch.conf\ntimeout 4\n' > "$BOOT/loader/loader.conf"
+          printf 'title Arch Linux\nversion 6.12.1\nlinux /vmlinuz-linux\noptions root=UUID=abc rw quiet\n' \
+            > "$BOOT/loader/entries/arch.conf"
+          printf 'title Older\nversion 6.9.0\nlinux /vmlinuz-old\noptions root=UUID=abc rw\n' \
+            > "$BOOT/loader/entries/old.conf"
+          : > "$BOOT/vmlinuz-linux"; : > "$BOOT/vmlinuz-old"
+          K=./target/release/kernelctl
+          $K --boot-dir "$BOOT" list
+          $K --boot-dir "$BOOT" status
+          $K --boot-dir "$BOOT" --json list > /dev/null
+          $K --boot-dir "$BOOT" set-default Older
+          $K --boot-dir "$BOOT" list | grep -q 'Older.*DEFAULT' \
+            || { echo "::error::set-default did not take effect"; exit 1; }
+          $K --boot-dir "$BOOT" diff Older "Arch Linux" > /dev/null
+
+      # Downloadable from the run's summary page. Short retention because
+      # tagged releases are the durable artefact.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernelctl-${{ matrix.arch }}-${{ github.sha }}
+          path: target/release/kernelctl
+          retention-days: 14
+          if-no-files-found: error
+
+  cross:
+    # The project claims ARMv7 support and GitHub has no 32-bit ARM runner,
+    # so it is at least kept compiling on every push. musl links
+    # self-contained, so no cross C toolchain is needed here.
+    name: cross-build armv7
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: armv7-unknown-linux-musleabihf
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: armv7
+      - run: cargo build --locked --release --target armv7-unknown-linux-musleabihf
+      - name: Confirm it is a 32-bit ARM binary
+        run: file target/armv7-unknown-linux-musleabihf/release/kernelctl | grep -q 'ELF 32-bit.*ARM'
+
+  msrv:
+    # Cargo.toml claims rust-version 1.85; this is what makes that true
+    # rather than aspirational.
+    name: MSRV 1.85
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv
+      - run: cargo build --locked --all-targets
