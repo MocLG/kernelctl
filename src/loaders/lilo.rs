@@ -38,8 +38,6 @@ use crate::sys::exec;
 
 use super::{scan::BootRoots, Bootloader, Capabilities, Context, Timeout};
 
-const CONFIG: &str = "/etc/lilo.conf";
-
 /// One `image=` or `other=` stanza.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LiloImage {
@@ -167,9 +165,10 @@ pub struct Lilo {
 }
 
 impl Lilo {
-    pub fn detect(_roots: &BootRoots) -> Option<Lilo> {
-        let path = PathBuf::from(CONFIG);
-        path.is_file().then(|| Lilo { config: path })
+    pub fn detect(roots: &BootRoots) -> Option<Lilo> {
+        // Located through the scan rather than hardcoded, so a scoped scan
+        // does not pick up the running system's /etc/lilo.conf.
+        roots.find_config("lilo.conf").map(|config| Lilo { config })
     }
 
     fn load(&self) -> Result<(LiloConfig, String)> {

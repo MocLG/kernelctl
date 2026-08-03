@@ -184,6 +184,25 @@ mod tests {
     }
 
     #[test]
+    fn a_scoped_scan_reports_no_host_global_loaders() {
+        // EFI NVRAM, Barebox's /env and /etc/lilo.conf belong to the running
+        // machine. A scan aimed at another tree must not report them as if
+        // they had been found there - this is what made CI fail on a runner
+        // whose firmware exposes Boot#### entries.
+        let tree = TempTree::new("registry-scoped");
+        tree.file("grub/grub.cfg", "menuentry 'Linux' {\n\tlinux /vmlinuz\n}\n");
+        fake_kernel(&tree, "vmlinuz");
+
+        let found = discover(&tree.roots()).kinds();
+        for host_global in
+            [LoaderKind::EfiStub, LoaderKind::Barebox, LoaderKind::Lilo]
+        {
+            assert!(!found.contains(&host_global), "{host_global} leaked into a scoped scan");
+        }
+        assert_eq!(found, vec![LoaderKind::Grub2]);
+    }
+
+    #[test]
     fn ranks_the_more_confident_loader_first() {
         let tree = TempTree::new("registry-rank");
         // A full systemd-boot install...

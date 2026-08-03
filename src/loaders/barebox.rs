@@ -126,6 +126,12 @@ impl Barebox {
         let mut env_boot = None;
         let mut default_file = None;
 
+        // The environment lives at a fixed path on the running system, so a
+        // scan aimed elsewhere must not read it.
+        if !roots.host_state {
+            return None;
+        }
+
         for base in Self::ENV_DIRS {
             let dir = Path::new(base);
             if dir.join("boot").is_dir() {

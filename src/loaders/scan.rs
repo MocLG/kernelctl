@@ -38,7 +38,18 @@ pub struct BootRoots {
     pub esp: Vec<PathBuf>,
     /// Mount table, cached so adapters need not re-read /proc/mounts.
     pub mounts: Vec<MountPoint>,
+    /// Directories holding loader configuration outside the boot partition.
+    /// Empty when the roots were constructed rather than discovered, which is
+    /// what keeps a scoped scan from reading the host's /etc.
+    pub config: Vec<PathBuf>,
+    /// May adapters read host-global state that has no configurable location -
+    /// EFI NVRAM, Barebox's /env? False for a constructed scan, so pointing at
+    /// a rescue image does not pick up the running machine's firmware entries.
+    pub host_state: bool,
 }
+
+/// Directories holding loader configuration outside the boot partition.
+const CONFIG_DIRS: &[&str] = &["/etc", "/etc/default", "/etc/kernel"];
 
 /// Boot directories checked even when they are not distinct mount points -
 /// on a system without a separate /boot partition these are just directories
@@ -93,7 +104,21 @@ impl BootRoots {
             }
         }
 
-        BootRoots { boot, esp, mounts }
+        let config = CONFIG_DIRS
+            .iter()
+            .map(PathBuf::from)
+            .filter(|p| p.is_dir())
+            .collect();
+
+        BootRoots { boot, esp, mounts, config, host_state: true }
+    }
+
+    /// Find a config file under the configuration directories.
+    ///
+    /// Returns `None` for a constructed scan, which is what stops an adapter
+    /// reaching into the host's /etc when it was asked to look elsewhere.
+    pub fn find_config(&self, relative: &str) -> Option<PathBuf> {
+        self.config.iter().map(|dir| dir.join(relative)).find(|p| p.is_file())
     }
 
     /// Is `path` on a filesystem mounted read-only? Reported as a pre-flight
@@ -146,6 +171,23 @@ mod tests {
         let missing = PathBuf::from("/nonexistent/kernelctl-boot-root");
         let roots = BootRoots::discover(&[missing.clone()]);
         assert!(!roots.boot.contains(&missing));
+    }
+
+    #[test]
+    fn discovered_roots_may_read_host_state_but_constructed_ones_may_not() {
+        assert!(BootRoots::discover(&[]).host_state);
+        // The default is what tests and scoped scans use; it must not reach
+        // into /etc or firmware.
+        let scoped = BootRoots::default();
+        assert!(!scoped.host_state);
+        assert!(scoped.config.is_empty());
+        assert_eq!(scoped.find_config("default/grub"), None);
+    }
+
+    #[test]
+    fn discovery_finds_the_config_directories() {
+        let roots = BootRoots::discover(&[]);
+        assert!(roots.config.contains(&PathBuf::from("/etc")));
     }
 
     #[test]

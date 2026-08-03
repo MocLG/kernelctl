@@ -168,6 +168,12 @@ pub struct EfiStub {
 
 impl EfiStub {
     pub fn detect(roots: &BootRoots) -> Option<EfiStub> {
+        // Firmware entries belong to the running machine and have no
+        // configurable location, so a scan aimed elsewhere must not report
+        // them as if they came from the target being inspected.
+        if !roots.host_state {
+            return None;
+        }
         // Without EFI variables there is nothing to read and nothing to write.
         if !efivars::available() {
             return None;

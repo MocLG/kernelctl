@@ -54,10 +54,11 @@ const VAR_SAVED: &str = "saved_entry";
 /// Variable holding the one-shot default, cleared by GRUB after it boots.
 const VAR_NEXT: &str = "next_entry";
 
-const DEFAULT_GRUB: &str = "/etc/default/grub";
-
 pub struct Grub2 {
     cfg: PathBuf,
+    /// Resolved at detection time from the scan's config directories, so a
+    /// scoped scan does not read the running system's /etc/default/grub.
+    default_grub: Option<PathBuf>,
     env: PathBuf,
     /// Partition the paths inside grub.cfg are relative to.
     boot_root: PathBuf,
@@ -376,6 +377,7 @@ impl Grub2 {
                 let confidence = if env.exists() { 92 } else { 80 };
                 return Some(Grub2 {
                     cfg,
+                    default_grub: roots.find_config("default/grub"),
                     env,
                     boot_root: root.clone(),
                     confidence,
@@ -401,8 +403,7 @@ impl Grub2 {
     }
 
     fn default_grub_path(&self) -> Option<PathBuf> {
-        let p = PathBuf::from(DEFAULT_GRUB);
-        p.exists().then_some(p)
+        self.default_grub.clone()
     }
 
     /// Resolve which parsed entry the given `saved_entry`/`next_entry` value
@@ -476,8 +477,9 @@ impl Bootloader for Grub2 {
     }
 
     fn config_files(&self) -> Vec<PathBuf> {
-        [self.cfg.clone(), self.env.clone(), PathBuf::from(DEFAULT_GRUB)]
+        [Some(self.cfg.clone()), Some(self.env.clone()), self.default_grub.clone()]
             .into_iter()
+            .flatten()
             .filter(|p| p.exists())
             .collect()
     }
@@ -959,6 +961,37 @@ menuentry 'Windows Boot Manager' $menuentry_id_option 'osprober-efi-1234' {
 
         loader.clear_oneshot(&fx.context()).unwrap();
         assert_eq!(GrubEnv::load(&tree.path("grub/grubenv")).unwrap().get("next_entry"), None);
+    }
+
+    #[test]
+    fn timeout_prefers_the_scan_s_default_grub_over_the_generated_config() {
+        // Reproduces the case that made CI fail: a machine that has its own
+        // /etc/default/grub while the scan is aimed at a different tree. The
+        // value must come from the scan's config directory, never the host's.
+        let tree = grub_tree("grub-scoped-etc");
+        tree.file("etc/default/grub", "GRUB_TIMEOUT=0\nGRUB_DEFAULT=saved\n");
+
+        let mut roots = tree.roots();
+        roots.config = vec![tree.path("etc")];
+        let fx = Fixture::rooted(roots);
+        let loader = Grub2::detect(&fx.roots).unwrap();
+
+        assert_eq!(loader.default_grub, Some(tree.path("etc/default/grub")));
+        assert_eq!(loader.timeout(&fx.context()).unwrap(), Some(Timeout::Immediate));
+        // And it is offered for backup alongside the generated config.
+        assert!(loader.config_files().contains(&tree.path("etc/default/grub")));
+    }
+
+    #[test]
+    fn a_scoped_scan_ignores_the_host_etc_entirely() {
+        // With no config directories the adapter must fall back to grub.cfg
+        // rather than reading whatever the running system happens to have.
+        let tree = grub_tree("grub-no-etc");
+        let fx = Fixture::rooted(tree.roots());
+        let loader = Grub2::detect(&fx.roots).unwrap();
+
+        assert_eq!(loader.default_grub, None);
+        assert!(loader.config_files().iter().all(|p| p.starts_with(&tree.root)));
     }
 
     #[test]
