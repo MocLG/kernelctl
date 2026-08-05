@@ -67,6 +67,12 @@ jobs:
         if: contains(matrix.target, 'musl') && matrix.native
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
+      # Cross-building for ARM needs a linker driver for that architecture;
+      # rust supplies the musl libc itself, so no C is compiled.
+      - name: Install the ARM linker driver
+        if: matrix.target == 'armv7-unknown-linux-musleabihf'
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-linux-gnueabihf
+
       # A tag that does not match Cargo.toml means someone forgot to bump the
       # version; catching it here beats publishing a mislabelled release.
       - name: Tag must match the crate version
@@ -86,6 +92,8 @@ jobs:
 
       - name: Build
         run: cargo build --locked --release --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER: arm-linux-gnueabihf-gcc
 
       - name: Verify the binary
         run: |

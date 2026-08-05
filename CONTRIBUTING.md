@@ -18,7 +18,7 @@ cargo build
 cargo test
 ```
 
-Rust 1.85 or newer is required (the crate is on edition 2024). See [`README.md`](README.md)
+Rust 1.88 or newer is required (the crate is on edition 2024). See [`README.md`](README.md)
 for the architecture and the reasoning behind the main design decisions.
 
 kernelctl can be pointed at a fake boot tree instead of the real one, which is how to

@@ -5,7 +5,7 @@
 name = "kernelctl"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Unified kernel and boot configuration management across every Linux bootloader"
 authors = ["Luka Gejak <luka.gejak@linux.dev>"]
 license = "GPL-3.0-only"

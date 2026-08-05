@@ -154,7 +154,7 @@ cargo test
 CI builds and tests natively on x86_64 and aarch64, cross-builds armv7, and checks the
 declared MSRV, so a change that breaks any of those is caught before it lands.
 
-Requires Rust 1.85 or newer (edition 2024). The release profile uses fat LTO, one codegen
+Requires Rust 1.88 or newer (edition 2024). The release profile uses fat LTO, one codegen
 unit, abort-on-panic and stripped symbols for a small, fast binary.
 
 ## Architecture

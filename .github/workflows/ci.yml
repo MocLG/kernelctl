@@ -119,18 +119,25 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: armv7
+      # Rust ships the musl libc for this target but not a linker driver for
+      # it, so the host's x86_64 cc gets used and fails. A cross gcc is only
+      # needed as the linker; no C is compiled.
+      - name: Install the ARM linker driver
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-linux-gnueabihf
       - run: cargo build --locked --release --target armv7-unknown-linux-musleabihf
+        env:
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER: arm-linux-gnueabihf-gcc
       - name: Confirm it is a 32-bit ARM binary
         run: file target/armv7-unknown-linux-musleabihf/release/kernelctl | grep -q 'ELF 32-bit.*ARM'
 
   msrv:
-    # Cargo.toml claims rust-version 1.85; this is what makes that true
+    # Cargo.toml claims rust-version 1.88; this is what makes that true
     # rather than aspirational.
-    name: MSRV 1.85
+    name: MSRV 1.88
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: dtolnay/rust-toolchain@1.88.0
       - uses: Swatinem/rust-cache@v2
         with:
           key: msrv
