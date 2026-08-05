@@ -464,6 +464,7 @@ fn require(
 mod tests {
     use super::*;
     use crate::cli::Cli;
+    use crate::sys::Privileges;
     use crate::loaders::testsupport::{fake_kernel, TempTree};
     use clap::Parser;
 
@@ -489,7 +490,12 @@ mod tests {
 
         let root = tree.root.display().to_string();
         let cli = Cli::try_parse_from(["kernelctl", "--boot-dir", &root, "tui"]).unwrap();
-        (tree, App::new(cli.global))
+        let mut app = App::new(cli.global);
+        // These tests assert what a write does, so they must supply the
+        // privileges rather than inherit whoever is running them - otherwise
+        // they silently pass as root and silently fail everywhere else.
+        app.privileges = Privileges { root: true, uid: 0, via_sudo: false };
+        (tree, app)
     }
 
     #[test]
@@ -595,6 +601,21 @@ mod tests {
         assert_eq!(tui.message.as_ref().unwrap().level, Level::Error);
         // The config must be untouched.
         assert!(tree.read("loader/loader.conf").contains("default arch.conf"));
+    }
+
+    #[test]
+    fn set_default_without_root_reports_an_error_and_writes_nothing() {
+        let (tree, mut app) = fixture("tui-noroot");
+        app.privileges = Privileges { root: false, uid: 1000, via_sudo: false };
+        let before = tree.read("loader/loader.conf");
+
+        let mut tui = Tui::new(&app);
+        let target = tui.visible.iter().position(|i| tui.entries[*i].title == "Older").unwrap();
+        tui.cursor = target;
+        tui.set_default();
+
+        assert_eq!(tui.message.as_ref().unwrap().level, Level::Error);
+        assert_eq!(tree.read("loader/loader.conf"), before);
     }
 
     #[test]

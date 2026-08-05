@@ -275,6 +275,7 @@ fn edit(field: &mut TextInput, key: KeyEvent) {
 mod tests {
     use super::*;
     use crate::cli::Cli;
+    use crate::sys::Privileges;
     use crate::loaders::testsupport::{fake_kernel, TempTree};
     use clap::Parser;
 
@@ -303,7 +304,12 @@ mod tests {
 
         let root = tree.root.display().to_string();
         let cli = Cli::try_parse_from(["kernelctl", "--boot-dir", &root, "tui"]).unwrap();
-        (tree, App::new(cli.global))
+        let mut app = App::new(cli.global);
+        // These tests assert what a write does, so they must supply the
+        // privileges rather than inherit whoever is running them - otherwise
+        // they silently pass as root and silently fail everywhere else.
+        app.privileges = Privileges { root: true, uid: 0, via_sudo: false };
+        (tree, app)
     }
 
     #[test]
