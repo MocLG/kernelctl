@@ -94,9 +94,13 @@ part of a title. A pattern matching more than one entry is an error, not a
 guess — booting the wrong entry is not something you find out about until the
 machine reboots.
 
-Global flags: `--boot-dir DIR` (repeatable, wins over auto-discovery),
-`--loader NAME`, `--all`, `--json`, `--dry-run`, `-y/--yes`, `--color WHEN`,
-`-v/--verbose`.
+Global flags: `--boot-dir DIR`, `--loader NAME`, `--all`, `--json`, `--dry-run`,
+`-y/--yes`, `--color WHEN`, `-v/--verbose`.
+
+`--boot-dir` **replaces** the automatic search rather than adding to it, so
+`kernelctl --boot-dir /mnt/rescue/boot list` describes that tree alone — the running
+system's `/boot`, its `/etc/default/grub` and its firmware boot entries are all
+excluded. That is what makes it safe for inspecting a mounted image.
 
 ## Interactive interface
 

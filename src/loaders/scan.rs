@@ -70,7 +70,27 @@ impl BootRoots {
     pub fn discover(overrides: &[PathBuf]) -> BootRoots {
         // A failure to read /proc/mounts is survivable: we fall back to the
         // standard directory list, which is right on most systems anyway.
+        // The mount table is still wanted when scoped, for free-space
+        // reporting and read-only checks on the paths being examined.
         let mounts = mounts::read_mounts().unwrap_or_default();
+
+        // An explicit --boot-dir replaces auto-discovery rather than adding
+        // to it. The point of the flag is to examine a specific tree - a
+        // mounted ESP, a rescue image - and mixing the running system's
+        // /boot, /etc and firmware into that answer describes neither
+        // accurately.
+        if !overrides.is_empty() {
+            let mut boot: Vec<PathBuf> = Vec::new();
+            for o in overrides.iter().filter(|p| p.is_dir()) {
+                // --boot-dir is repeatable, so the same path may be given
+                // twice; scanning it twice would duplicate every entry.
+                if !boot.contains(o) {
+                    boot.push(o.clone());
+                }
+            }
+            let esp = boot.iter().filter(|p| p.join("EFI").is_dir()).cloned().collect();
+            return BootRoots { boot, esp, mounts, config: Vec::new(), host_state: false };
+        }
 
         let mut boot: Vec<PathBuf> = Vec::new();
         let push = |p: PathBuf, boot: &mut Vec<PathBuf>| {
@@ -79,9 +99,6 @@ impl BootRoots {
             }
         };
 
-        for o in overrides {
-            push(o.clone(), &mut boot);
-        }
         for m in mounts::boot_mounts(&mounts) {
             // The root filesystem is not itself a boot root; its /boot is,
             // and that is covered by the standard list below.
@@ -97,12 +114,7 @@ impl BootRoots {
             push(entry, &mut boot);
         }
 
-        let mut esp = mounts::esp_roots(&mounts);
-        for o in overrides {
-            if o.join("EFI").is_dir() && !esp.contains(o) {
-                esp.insert(0, o.clone());
-            }
-        }
+        let esp = mounts::esp_roots(&mounts);
 
         let config = CONFIG_DIRS
             .iter()
@@ -160,10 +172,16 @@ mod tests {
     }
 
     #[test]
-    fn overrides_take_priority_over_discovery() {
+    fn an_override_replaces_discovery_rather_than_extending_it() {
         let tmp = TmpDir::new("override");
         let roots = BootRoots::discover(std::slice::from_ref(&tmp.0));
-        assert_eq!(roots.boot.first(), Some(&tmp.0), "--boot-dir must win");
+
+        assert_eq!(roots.boot, vec![tmp.0.clone()], "--boot-dir must be the whole search");
+        // The running system's /boot and /etc must not leak into a scan that
+        // was aimed somewhere specific.
+        assert!(!roots.boot.contains(&PathBuf::from("/boot")));
+        assert!(roots.config.is_empty());
+        assert!(!roots.host_state);
     }
 
     #[test]

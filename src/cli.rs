@@ -47,9 +47,10 @@ pub struct Cli {
 
 #[derive(Debug, Args, Clone)]
 pub struct GlobalArgs {
-    /// Additional directory to search for boot configuration. Repeatable, and
-    /// takes priority over auto-discovery - use it to inspect a mounted ESP or
-    /// a rescue image.
+    /// Search this directory instead of auto-discovering. Repeatable. Replaces
+    /// the automatic search entirely, so the running system's /boot, /etc and
+    /// firmware entries are excluded - use it to inspect a mounted ESP or a
+    /// rescue image on its own terms.
     #[arg(long = "boot-dir", value_name = "DIR", global = true)]
     pub boot_dirs: Vec<PathBuf>,
 
