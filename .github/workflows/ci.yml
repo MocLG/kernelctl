@@ -87,14 +87,34 @@ jobs:
           printf 'title Older\nversion 6.9.0\nlinux /vmlinuz-old\noptions root=UUID=abc rw\n' \
             > "$BOOT/loader/entries/old.conf"
           : > "$BOOT/vmlinuz-linux"; : > "$BOOT/vmlinuz-old"
-          K=./target/release/kernelctl
+          K="$PWD/target/release/kernelctl"
+
+          # Read-only commands must work as an ordinary user.
           $K --boot-dir "$BOOT" list
           $K --boot-dir "$BOOT" status
           $K --boot-dir "$BOOT" --json list > /dev/null
-          $K --boot-dir "$BOOT" set-default Older
+          $K --boot-dir "$BOOT" diff Older "Arch Linux" > /dev/null
+
+          # A write as a non-root user must be refused, and must leave the
+          # configuration exactly as it was. The runner is unprivileged, so
+          # this is a genuine check rather than a simulated one.
+          before="$(cat "$BOOT/loader/loader.conf")"
+          if $K --boot-dir "$BOOT" set-default Older; then
+            echo "::error::set-default succeeded without root"
+            exit 1
+          fi
+          if [ "$before" != "$(cat "$BOOT/loader/loader.conf")" ]; then
+            echo "::error::a refused write still modified the config"
+            exit 1
+          fi
+
+          # And the same write must succeed with privileges.
+          sudo "$K" --boot-dir "$BOOT" set-default Older
           $K --boot-dir "$BOOT" list | grep -q 'Older.*DEFAULT' \
             || { echo "::error::set-default did not take effect"; exit 1; }
-          $K --boot-dir "$BOOT" diff Older "Arch Linux" > /dev/null
+          # The atomic writer must have preserved the previous config.
+          test -f "$BOOT/loader/loader.conf.bak" \
+            || { echo "::error::no .bak was written"; exit 1; }
 
       # Downloadable from the run's summary page. Short retention because
       # tagged releases are the durable artefact.
