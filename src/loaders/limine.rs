@@ -34,6 +34,7 @@
 //! `boot():/vmlinuz`, `guid(...)/vmlinuz`, `hdd(1:1):/vmlinuz` - which is
 //! stripped to recover the filesystem path.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::error::{Error, Result};
@@ -94,6 +95,35 @@ pub struct LimineEntry {
     pub tree_path: String,
 }
 
+/// Expand `${NAME}` references using the macros defined in the config.
+///
+/// Limine lets a config define `${NAME}=value` and use it anywhere afterwards,
+/// and real configs use it for kernel and module paths. Leaving a reference
+/// unexpanded resolves the path to a file that cannot exist, which flags a
+/// perfectly good entry as broken - and the pre-flight check then refuses to
+/// make it the default.
+fn expand_macros(value: &str, macros: &BTreeMap<String, String>) -> String {
+    if !value.contains("${") {
+        return value.to_string();
+    }
+    let mut out = value.to_string();
+    // Bounded so a macro defined in terms of itself cannot spin forever.
+    for _ in 0..8 {
+        let mut changed = false;
+        for (name, replacement) in macros {
+            let token = format!("${{{name}}}");
+            if out.contains(&token) {
+                out = out.replace(&token, replacement);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    out
+}
+
 /// Strip Limine's `resource(args):` prefix from a path.
 ///
 /// The prefix says *which partition* to read from, which is information we
@@ -133,6 +163,8 @@ pub struct LimineConfig {
 /// Parse a Limine config of either generation.
 pub fn parse(text: &str, syntax: Syntax) -> LimineConfig {
     let mut cfg = LimineConfig::default();
+    // Macro definitions, applied to every value read after them.
+    let mut macros: BTreeMap<String, String> = BTreeMap::new();
     // Titles of the currently open entry at each depth, for building the
     // slash-separated tree path a `default_entry` may refer to.
     let mut ancestry: Vec<String> = Vec::new();
@@ -145,6 +177,14 @@ pub fn parse(text: &str, syntax: Syntax) -> LimineConfig {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
+        }
+
+        // `${NAME}=value` defines a macro rather than setting anything.
+        if let Some(rest) = trimmed.strip_prefix("${") {
+            if let Some((name, value)) = rest.split_once("}=") {
+                macros.insert(name.to_string(), expand_macros(value.trim(), &macros));
+                continue;
+            }
         }
 
         if trimmed.starts_with(marker) {
@@ -169,7 +209,8 @@ pub fn parse(text: &str, syntax: Syntax) -> LimineConfig {
             continue;
         }
 
-        let Some((key, value)) = split_setting(trimmed, syntax) else { continue };
+        let Some((key, raw_value)) = split_setting(trimmed, syntax) else { continue };
+        let value = expand_macros(&raw_value, &macros);
 
         // Settings before the first entry header are global.
         let Some(entry) = cfg.entries.last_mut() else {
@@ -528,6 +569,43 @@ DEFAULT_ENTRY=1
         assert_eq!(Syntax::detect(LEGACY), Syntax::Legacy);
         // Comments must not confuse the detection.
         assert_eq!(Syntax::detect("# just a comment\n"), Syntax::Modern);
+    }
+
+    #[test]
+    fn expands_macros_in_paths() {
+        // Taken from Limine's own upstream test config, which defines its
+        // kernel path through a macro. Leaving it unexpanded resolved to a
+        // file that cannot exist, flagged a valid entry BROKEN, and made the
+        // pre-flight refuse to set it as the default.
+        let text = "\
+${TEST_KERNEL}=boot():/boot/test.elf
+${WALLPAPER}=boot():/boot/bg.jpg
+
+/Limine Test
+    protocol: limine
+    path: ${TEST_KERNEL}
+    module_path: ${WALLPAPER}
+";
+        let cfg = parse(text, Syntax::Modern);
+        assert_eq!(cfg.entries[0].kernel.as_deref(), Some("/boot/test.elf"));
+        assert_eq!(cfg.entries[0].modules, vec!["/boot/bg.jpg"]);
+    }
+
+    #[test]
+    fn macro_expansion_terminates_on_a_self_reference() {
+        let mut macros = BTreeMap::new();
+        macros.insert("A".to_string(), "${A}".to_string());
+        // Must return rather than loop; the value it settles on does not
+        // matter, only that it settles.
+        let _ = expand_macros("${A}", &macros);
+    }
+
+    #[test]
+    fn leaves_unknown_macros_alone() {
+        // ${ARCH} and ${FW_TYPE} are resolved by Limine at boot, not by us.
+        let cfg = parse("/E\n    comment: on ${ARCH}\n    path: boot():/vmlinuz\n", Syntax::Modern);
+        assert_eq!(cfg.entries[0].comment.as_deref(), Some("on ${ARCH}"));
+        assert_eq!(cfg.entries[0].kernel.as_deref(), Some("/vmlinuz"));
     }
 
     #[test]
