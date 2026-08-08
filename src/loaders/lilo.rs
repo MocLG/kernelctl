@@ -235,10 +235,21 @@ impl Bootloader for Lilo {
 
     fn post_write_note(&self) -> Option<String> {
         Some(
-            "LILO reads no config at boot: run `lilo` as root to write the change into \
-             the boot sector, or the next boot will use the previous configuration"
+            "LILO records the location of each kernel on disk, so `lilo` must be rerun \
+             after a kernel is replaced as well as after this file changes"
                 .to_string(),
         )
+    }
+
+    /// Always pending: LILO reads no configuration at boot.
+    ///
+    /// Everything in lilo.conf is compiled into the boot sector and map file
+    /// when `lilo` runs, so editing the file changes nothing on its own. That
+    /// is the same trap as GRUB 2's generated menu and is reported the same
+    /// way - as a warning, not a note - because a reboot without it silently
+    /// brings up the previous entry.
+    fn pending_activation(&self) -> Option<String> {
+        Some("lilo".to_string())
     }
 
     fn entries(&self, _ctx: &Context) -> Result<Vec<BootEntry>> {
@@ -487,8 +498,12 @@ other=/dev/sda2
     #[test]
     fn always_warns_that_lilo_must_be_rerun() {
         let (_tree, loader) = scratch("lilo-note");
-        // Editing the file alone changes nothing at boot, so this must be said.
-        assert!(loader.post_write_note().unwrap().contains("run `lilo`"));
+        // Writing lilo.conf changes nothing at boot until `lilo` recompiles the
+        // boot sector, so this has to be reported as pending rather than as a
+        // completed change - confirmed on a VM, where a reboot after
+        // set-default alone still came up on the previous entry.
+        assert_eq!(loader.pending_activation().as_deref(), Some("lilo"));
+        assert!(loader.post_write_note().unwrap().contains("lilo"));
     }
 
     #[test]
