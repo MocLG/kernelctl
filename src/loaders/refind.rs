@@ -213,25 +213,56 @@ impl Refind {
     }
 }
 
-/// Set a global directive, keeping it above the first menuentry.
+/// Set a global directive, leaving exactly one of it in the file.
+///
+/// rEFInd honours the *last* occurrence of a global token, so rewriting only
+/// the copy above the first menuentry leaves a later, stale one in charge and
+/// the change silently does nothing. That is the common case rather than a
+/// corner one: rEFInd ships example `menuentry` stanzas partway through its
+/// own config, so anything a user appends lands after them. Every occurrence
+/// at brace depth zero is therefore collapsed into a single line.
 fn set_global(text: &str, keyword: &str, value: &str) -> String {
     let mut out: Vec<String> = Vec::new();
     let mut replaced = false;
     let mut first_entry: Option<usize> = None;
+    let mut depth = 0usize;
 
     for line in text.lines() {
         let trimmed = line.trim();
-        if first_entry.is_none() && trimmed.starts_with("menuentry") {
+        if trimmed == "}" {
+            depth = depth.saturating_sub(1);
+            out.push(line.to_string());
+            continue;
+        }
+
+        let directive = split_directive(line);
+        let opens = trimmed.ends_with('{');
+
+        if depth == 0
+            && first_entry.is_none()
+            && directive.as_ref().is_some_and(|(k, _)| k == "menuentry")
+        {
             first_entry = Some(out.len());
         }
-        let is_target = first_entry.is_none()
-            && split_directive(line).is_some_and(|(k, _)| k == keyword);
 
-        if is_target && !replaced {
-            out.push(format!("{keyword} {value}"));
-            replaced = true;
-        } else if !is_target {
+        // Only a bare directive outside every block is the global setting; the
+        // same word inside a menuentry means something else entirely.
+        let is_target =
+            depth == 0 && !opens && directive.as_ref().is_some_and(|(k, _)| k == keyword);
+
+        if is_target {
+            // The first occurrence becomes the new value; later duplicates are
+            // dropped, since rEFInd would otherwise honour those instead.
+            if !replaced {
+                out.push(format!("{keyword} {value}"));
+                replaced = true;
+            }
+        } else {
             out.push(line.to_string());
+        }
+
+        if opens {
+            depth += 1;
         }
     }
 
@@ -508,6 +539,36 @@ menuentry "Retired" {
         assert!(reread.iter().find(|e| e.title == "Windows").unwrap().is_default());
         assert!(!reread.iter().find(|e| e.title == "Arch Linux").unwrap().is_default());
         assert_eq!(loader.timeout(&fx.context()).unwrap(), Some(Timeout::Indefinite));
+    }
+
+    #[test]
+    fn a_global_set_after_the_menuentries_is_the_one_rewritten() {
+        // rEFInd's shipped config puts example menuentry stanzas partway
+        // through the file, so settings a user adds land below them. rEFInd
+        // applies the last occurrence, so writing a fresh copy higher up would
+        // change nothing - the machine would keep booting the old selection.
+        let text = format!("{CONF}\ntimeout 3\ndefault_selection \"Windows\"\n");
+
+        let updated = set_global(&text, "default_selection", "\"Retired\"");
+        assert_eq!(
+            updated.lines().filter(|l| l.trim_start().starts_with("default_selection")).count(),
+            1,
+            "a second default_selection would override the one we wrote"
+        );
+        assert_eq!(parse(&updated).default_selection.as_deref(), Some("Retired"));
+
+        // The menuentries themselves must come through untouched.
+        let cfg = parse(&updated);
+        assert_eq!(cfg.entries.len(), 3);
+        assert_eq!(cfg.entries[0].loader.as_deref(), Some("/vmlinuz-linux"));
+    }
+
+    #[test]
+    fn a_directive_inside_a_menuentry_is_not_mistaken_for_the_global() {
+        let text = "menuentry \"Linux\" {\n    loader /vmlinuz\n    timeout 99\n}\n";
+        let updated = set_global(text, "timeout", "5");
+        assert!(updated.contains("    timeout 99"), "the entry's own line was rewritten");
+        assert_eq!(parse(&updated).timeout, Some(5));
     }
 
     #[test]
