@@ -57,6 +57,7 @@ pub fn run(app: &App, value: Option<&str>) -> Result<()> {
             }
 
             app.report_writes(&outcomes);
+            app.print_pending(loader);
             app.print_note(loader);
             Ok(())
         }

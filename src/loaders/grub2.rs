@@ -81,6 +81,9 @@ pub struct MenuEntry {
     pub devicetree: Option<String>,
     /// GRUB's positional address, e.g. `0` or `1>2` inside a submenu.
     pub index_path: String,
+    /// Identifier path GRUB resolves, e.g. `gnulinux-advanced>gnulinux-6.11`.
+    /// A nested entry cannot be selected by its own id alone.
+    pub id_path: String,
     pub depth: u8,
     pub is_submenu: bool,
     /// Line index of the `linux` line, so a cmdline edit can target it.
@@ -178,6 +181,9 @@ pub fn parse_cfg(text: &str) -> Vec<MenuEntry> {
 
     // One counter per nesting level, giving GRUB's `1>2` addressing.
     let mut counters: Vec<usize> = vec![0];
+    // Ids of the submenus currently open, for building the `parent>child`
+    // path GRUB needs to resolve a nested entry.
+    let mut open_ids: Vec<String> = Vec::new();
     // Brace depth at which each open submenu started, so we know when it ends.
     let mut submenu_depths: Vec<i32> = Vec::new();
     let mut depth: i32 = 0;
@@ -204,9 +210,21 @@ pub fn parse_cfg(text: &str) -> Vec<MenuEntry> {
                 index_path.push_str(&c.to_string());
             }
 
+            let own_id = extract_id(&tokens);
+            // GRUB addresses a nested entry as parent>child; its own id alone
+            // does not resolve, and it silently falls back to the first entry.
+            let id_path = match &own_id {
+                Some(id) if !open_ids.is_empty() => {
+                    format!("{}>{}", open_ids.join(">"), id)
+                }
+                Some(id) => id.clone(),
+                None => String::new(),
+            };
+
             let mut entry = MenuEntry {
                 title,
-                id: extract_id(&tokens),
+                id: own_id.clone(),
+                id_path,
                 index_path,
                 depth: level as u8,
                 is_submenu,
@@ -222,6 +240,9 @@ pub fn parse_cfg(text: &str) -> Vec<MenuEntry> {
                 // index, so it must keep that value until the submenu closes.
                 submenu_depths.push(depth);
                 counters.push(0);
+                open_ids.push(
+                    entry.id.clone().unwrap_or_else(|| entry.index_path.clone()),
+                );
                 out.push(entry);
                 i += 1;
                 continue;
@@ -245,13 +266,13 @@ pub fn parse_cfg(text: &str) -> Vec<MenuEntry> {
             i = j + 1;
 
             // Leaving a menuentry can also close the submenu containing it.
-            close_submenus(depth, &mut submenu_depths, &mut counters);
+            close_submenus(depth, &mut submenu_depths, &mut counters, &mut open_ids);
             continue;
         }
 
         depth += brace_delta(line);
         // A closing brace may end a submenu.
-        close_submenus(depth, &mut submenu_depths, &mut counters);
+        close_submenus(depth, &mut submenu_depths, &mut counters, &mut open_ids);
         i += 1;
     }
 
@@ -263,9 +284,15 @@ pub fn parse_cfg(text: &str) -> Vec<MenuEntry> {
 /// The parent's counter is advanced here rather than when the submenu opened:
 /// while we are inside it, children address themselves as `parent>child` and
 /// need the parent's own index to still be current.
-fn close_submenus(depth: i32, submenu_depths: &mut Vec<i32>, counters: &mut Vec<usize>) {
+fn close_submenus(
+    depth: i32,
+    submenu_depths: &mut Vec<i32>,
+    counters: &mut Vec<usize>,
+    open_ids: &mut Vec<String>,
+) {
     while submenu_depths.last().is_some_and(|d| depth < *d) {
         submenu_depths.pop();
+        open_ids.pop();
         if counters.len() > 1 {
             counters.pop();
             *counters.last_mut().expect("a parent level always remains") += 1;
@@ -391,15 +418,20 @@ impl Grub2 {
         GrubEnv::load(&self.env).unwrap_or_else(|_| GrubEnv::empty())
     }
 
-    /// Does grub.cfg actually consult `saved_entry`?
+    /// Does grub.cfg actually take its default from `saved_entry`?
     ///
     /// It only does so when the config was generated with `GRUB_DEFAULT=saved`.
-    /// Without that, writing the environment block has no effect and the user
-    /// needs to be told.
+    /// Testing for the string anywhere in the file is not enough: the
+    /// savedefault machinery Debian and Ubuntu emit mentions `saved_entry`
+    /// even when the default is a fixed index, so a substring match reports
+    /// true on exactly the systems where writing grubenv does nothing. Only a
+    /// `set default=` line referring to it counts.
     fn honours_saved_entry(&self) -> bool {
-        std::fs::read_to_string(&self.cfg)
-            .map(|t| t.contains("saved_entry"))
-            .unwrap_or(false)
+        let Ok(text) = std::fs::read_to_string(&self.cfg) else { return false };
+        text.lines().any(|line| {
+            let t = line.trim();
+            t.starts_with("set default=") && t.contains("saved_entry")
+        })
     }
 
     fn default_grub_path(&self) -> Option<PathBuf> {
@@ -413,7 +445,8 @@ impl Grub2 {
         if value.is_empty() {
             return false;
         }
-        entry.id.as_deref() == Some(value)
+        entry.id_path == value
+            || entry.id.as_deref() == Some(value)
             || entry.title == value
             || entry.index_path == value
     }
@@ -484,6 +517,20 @@ impl Bootloader for Grub2 {
             .collect()
     }
 
+    fn pending_activation(&self) -> Option<String> {
+        if self.honours_saved_entry() {
+            return None;
+        }
+        // The menu takes its default from a fixed index, so the environment
+        // block we wrote is not consulted until the config is regenerated.
+        let regen = if crate::sys::exec::which("update-grub").is_some() {
+            "update-grub".to_string()
+        } else {
+            format!("grub-mkconfig -o {}", self.cfg.display())
+        };
+        Some(regen)
+    }
+
     fn post_write_note(&self) -> Option<String> {
         Some(format!(
             "{} is generated by grub-mkconfig and will be rewritten on the next \
@@ -501,9 +548,14 @@ impl Bootloader for Grub2 {
 
         let mut out = Vec::new();
         for menu in &parsed {
-            // saved_entry stores the id when there is one, so prefer it and
-            // fall back to the positional address.
-            let native_id = menu.id.clone().unwrap_or_else(|| menu.index_path.clone());
+            // saved_entry must hold something GRUB can resolve: the full
+            // parent>child id path for a nested entry, or the positional
+            // address when the config carries no ids at all.
+            let native_id = if menu.id_path.is_empty() {
+                menu.index_path.clone()
+            } else {
+                menu.id_path.clone()
+            };
             let mut entry =
                 BootEntry::new(LoaderKind::Grub2, &self.cfg, &native_id, &menu.title);
 
@@ -777,6 +829,23 @@ menuentry 'Windows Boot Manager' $menuentry_id_option 'osprober-efi-1234' {
     }
 
     #[test]
+    fn a_nested_entry_is_addressed_by_its_full_id_path() {
+        // Confirmed on a real Debian 13 VM: writing only the child's own id
+        // to saved_entry left GRUB unable to resolve it, so it silently fell
+        // back to the first entry and booted the wrong kernel. Every
+        // non-latest kernel on Debian and Ubuntu lives in this submenu.
+        let entries = parse_cfg(CFG);
+        let child = entries.iter().find(|e| e.title.contains("recovery mode")).unwrap();
+
+        assert_eq!(
+            child.id_path,
+            "gnulinux-advanced-abc>gnulinux-6.11.0-9-generic-recovery-abc"
+        );
+        // A top-level entry needs no path prefix.
+        assert_eq!(entries[0].id_path, "gnulinux-simple-abc");
+    }
+
+    #[test]
     fn records_the_linux_line_for_editing() {
         let entries = parse_cfg(CFG);
         let line = entries[0].linux_line.expect("linux line recorded");
@@ -928,6 +997,43 @@ menuentry 'Windows Boot Manager' $menuentry_id_option 'osprober-efi-1234' {
     }
 
     #[test]
+    fn a_fixed_index_default_is_not_mistaken_for_saved_entry() {
+        // Debian and Ubuntu emit savedefault machinery that mentions
+        // saved_entry while the default is a fixed index. A substring match
+        // reported these as honouring it, so set-default wrote grubenv,
+        // claimed success, and the machine booted the old entry - confirmed
+        // on a real Debian 13 VM.
+        let tree = TempTree::new("grub-fixed-default");
+        tree.file(
+            "grub/grub.cfg",
+            "if [ \"${next_entry}\" ] ; then\n\
+             \x20  set default=\"${next_entry}\"\n\
+             else\n\
+             \x20  set default=\"0\"\n\
+             fi\n\
+             if [ \"${prev_saved_entry}\" ]; then\n\
+             \x20  set saved_entry=\"${prev_saved_entry}\"\n\
+             fi\n\
+             menuentry 'Linux' {\n\tlinux /vmlinuz\n}\n",
+        );
+        fake_kernel(&tree, "vmlinuz");
+        let loader = Grub2::detect(&tree.roots()).unwrap();
+
+        assert!(!loader.honours_saved_entry(), "a fixed index does not consult saved_entry");
+        // And the user is told the write needs a further step.
+        assert!(loader.pending_activation().is_some());
+    }
+
+    #[test]
+    fn a_saved_entry_default_is_recognised() {
+        let tree = grub_tree("grub-saved-default");
+        let loader = Grub2::detect(&tree.roots()).unwrap();
+        // The fixture's config uses set default="${saved_entry}".
+        assert!(loader.honours_saved_entry());
+        assert!(loader.pending_activation().is_none(), "already in effect");
+    }
+
+    #[test]
     fn set_default_writes_the_environment_block() {
         let tree = grub_tree("grub-setdefault");
         let fx = Fixture::rooted(tree.roots());
@@ -938,7 +1044,11 @@ menuentry 'Windows Boot Manager' $menuentry_id_option 'osprober-efi-1234' {
         loader.set_default(&fx.context(), recovery).unwrap();
 
         let env = GrubEnv::load(&tree.path("grub/grubenv")).unwrap();
-        assert_eq!(env.get("saved_entry"), Some("gnulinux-6.11.0-9-generic-recovery-abc"));
+        // The full path, since GRUB cannot resolve a nested entry from its own id.
+        assert_eq!(
+            env.get("saved_entry"),
+            Some("gnulinux-advanced-abc>gnulinux-6.11.0-9-generic-recovery-abc")
+        );
         // The block must keep its exact size or GRUB will reject it.
         assert_eq!(std::fs::metadata(tree.path("grub/grubenv")).unwrap().len() as usize, grubenv::BLOCK_SIZE);
     }
@@ -953,7 +1063,10 @@ menuentry 'Windows Boot Manager' $menuentry_id_option 'osprober-efi-1234' {
 
         loader.set_oneshot(&fx.context(), target).unwrap();
         let env = GrubEnv::load(&tree.path("grub/grubenv")).unwrap();
-        assert_eq!(env.get("next_entry"), Some("gnulinux-6.11.0-9-generic-recovery-abc"));
+        assert_eq!(
+            env.get("next_entry"),
+            Some("gnulinux-advanced-abc>gnulinux-6.11.0-9-generic-recovery-abc")
+        );
 
         // And the entry now reports the badge.
         let reread = loader.entries(&fx.context()).unwrap();

@@ -198,6 +198,16 @@ pub trait Bootloader {
         None
     }
 
+    /// The command the user must still run for a written change to take
+    /// effect, when writing the config alone is not enough.
+    ///
+    /// Returning `Some` means a reboot right now would *not* use the new
+    /// setting, so callers must say so prominently rather than reporting a
+    /// bare success.
+    fn pending_activation(&self) -> Option<String> {
+        None
+    }
+
     fn set_default(&self, _ctx: &Context, _entry: &BootEntry) -> Result<Vec<WriteOutcome>> {
         Err(Error::unsupported(self.kind().display_name(), "changing the default entry"))
     }

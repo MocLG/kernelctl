@@ -168,6 +168,20 @@ impl App {
         }
     }
 
+    /// Report a change that has been written but is not yet in effect.
+    ///
+    /// Printed as a warning rather than a note: a user who reboots without
+    /// running the command would get the old entry despite having been told
+    /// the change succeeded.
+    pub fn print_pending(&self, loader: &dyn Bootloader) {
+        if let Some(command) = loader.pending_activation() {
+            warn(&format!(
+                "not in effect yet - this bootloader takes its default from its generated \
+                 menu, so run `{command}` to apply it"
+            ));
+        }
+    }
+
     /// Report what a write touched, including where the backup went.
     pub fn report_writes(&self, outcomes: &[crate::sys::atomic::WriteOutcome]) {
         if self.args.dry_run {

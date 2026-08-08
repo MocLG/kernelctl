@@ -154,6 +154,7 @@ fn apply(app: &App, entry: &BootEntry, cmdline: &str) -> Result<()> {
     println!("  {} {}", style::dim("was:"), style::dim(&entry.cmdline));
     println!("  {} {cmdline}", style::dim("now:"));
     app.report_writes(&outcomes);
+    app.print_pending(loader);
     app.print_note(loader);
 
     Ok(())
