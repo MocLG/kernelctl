@@ -4,7 +4,7 @@
 name: Release
 
 # Pushing a version tag publishes downloadable binaries:
-#   git tag -s v0.1.0 -m 'kernelctl 0.1.0' && git push origin v0.1.0
+#   git tag -s v1.0.0 -m 'kernelctl v1.0.0' && git push origin v1.0.0
 on:
   push:
     tags: ['v*']
