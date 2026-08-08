@@ -341,13 +341,19 @@ fn set_global(text: &str, syntax: Syntax, key: &str, value: &str) -> String {
         if first_entry.is_none() && trimmed.starts_with(marker) {
             first_entry = Some(i);
         }
-        let is_key = first_entry.is_none()
-            && split_setting(trimmed, syntax).is_some_and(|(k, _)| k == key);
+        // `timeout` and `default_entry` are global wherever they sit - Limine
+        // applies the last assignment regardless of which entry it follows, as
+        // the parser above also assumes. Rewriting only a copy above the first
+        // entry would leave a later one deciding what boots, so all of them
+        // collapse into one.
+        let is_key = split_setting(trimmed, syntax).is_some_and(|(k, _)| k == key);
 
-        if is_key && !replaced {
-            out.push(assignment.clone());
-            replaced = true;
-        } else if !is_key {
+        if is_key {
+            if !replaced {
+                out.push(assignment.clone());
+                replaced = true;
+            }
+        } else {
             out.push(line.to_string());
         }
     }
@@ -793,6 +799,25 @@ ${WALLPAPER}=boot():/boot/bg.jpg
 
         let reread = loader.entries(&fx.context()).unwrap();
         assert!(reread.iter().find(|e| e.title.contains("fallback")).unwrap().is_default());
+    }
+
+    #[test]
+    fn a_global_written_below_the_entries_is_the_one_rewritten() {
+        // Limine treats timeout and default_entry as global wherever they
+        // appear and applies the last assignment, so a copy under the entries
+        // would keep deciding what boots if only the top one were rewritten.
+        let text = format!("{MODERN}\ndefault_entry: 1\n");
+        let out = set_global(&text, Syntax::Modern, "default_entry", "Arch Linux");
+
+        assert_eq!(
+            out.lines().filter(|l| l.trim_start().starts_with("default_entry")).count(),
+            1,
+            "a second default_entry would override the one we wrote"
+        );
+        let cfg = parse(&out, Syntax::Modern);
+        assert_eq!(cfg.default_entry.as_deref(), Some("Arch Linux"));
+        // The entries themselves must survive untouched.
+        assert_eq!(parse(MODERN, Syntax::Modern).entries.len(), cfg.entries.len());
     }
 
     #[test]
