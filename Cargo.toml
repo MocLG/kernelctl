@@ -32,10 +32,6 @@ codegen-units = 1
 panic = "abort"
 strip = "symbols"
 
-# `panic = "abort"` is incompatible with the test harness, so keep unwinding
-# for test builds only.
-[profile.test]
-panic = "unwind"
-
-[profile.bench]
-panic = "unwind"
+# No [profile.test] or [profile.bench] override for `panic`: cargo always
+# unwinds there regardless of what the release profile sets, and spelling it
+# out only makes cargo warn that it is ignoring the setting.
