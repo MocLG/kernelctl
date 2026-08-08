@@ -277,7 +277,6 @@ impl Bootloader for Refind {
             .entries
             .iter()
             .enumerate()
-            .filter(|(_, e)| !e.disabled)
             .map(|(i, re)| {
                 let mut entry =
                     BootEntry::new(LoaderKind::Refind, &self.config, &re.title, &re.title);
@@ -297,7 +296,12 @@ impl Bootloader for Refind {
                 if re.loader.as_deref().is_some_and(|l| l.to_ascii_lowercase().ends_with(".efi")) {
                     entry.flags.insert(EntryFlags::EFI_STUB);
                 }
-                if is_default(&selection, i, re) {
+                // Reported rather than hidden: a config full of disabled
+                // entries otherwise looks like an empty one, which is exactly
+                // what the upstream refind.conf-sample looks like.
+                if re.disabled {
+                    entry.flags.insert(EntryFlags::DISABLED);
+                } else if is_default(&selection, i, re) {
                     entry.flags.insert(EntryFlags::DEFAULT);
                 }
                 entry
@@ -460,17 +464,33 @@ menuentry "Retired" {
     }
 
     #[test]
-    fn detects_refind_and_skips_disabled_entries() {
+    fn detects_refind_and_lists_every_entry() {
         let tree = refind_tree("refind-detect");
         let fx = Fixture::rooted(tree.roots());
         let loader = Refind::detect(&fx.roots).expect("refind detected");
 
         let entries = loader.entries(&fx.context()).unwrap();
-        // The disabled entry is not offered at boot, so it is not listed.
-        assert_eq!(entries.len(), 2);
-        assert!(entries.iter().all(|e| e.title != "Retired"));
+        // All three, including the disabled one - it is badged, not hidden.
+        assert_eq!(entries.len(), 3);
+        assert!(entries.iter().any(|e| e.title == "Retired"));
         assert!(entries[0].is_default());
         assert_eq!(entries[0].kernel.as_ref().unwrap(), &tree.path("vmlinuz-linux"));
+    }
+
+    #[test]
+    fn disabled_entries_are_listed_rather_than_hidden() {
+        // The upstream refind.conf-sample ships every example disabled, so
+        // filtering them out made a config with eight entries report none.
+        let tree = refind_tree("refind-disabled");
+        let fx = Fixture::rooted(tree.roots());
+        let loader = Refind::detect(&fx.roots).unwrap();
+
+        let entries = loader.entries(&fx.context()).unwrap();
+        let retired = entries.iter().find(|e| e.title == "Retired").expect("listed");
+        assert!(retired.flags.contains(EntryFlags::DISABLED));
+        // A disabled entry is never the one that boots.
+        assert!(!retired.is_default());
+        assert!(entries.iter().find(|e| e.title == "Arch Linux").unwrap().is_default());
     }
 
     #[test]
@@ -506,6 +526,6 @@ menuentry "Retired" {
 
         let reread = loader.entries(&fx.context()).unwrap();
         assert_eq!(reread[0].cmdline, "root=UUID=abc rw loglevel=3");
-        assert_eq!(reread.len(), 2);
+        assert_eq!(reread.len(), 3);
     }
 }

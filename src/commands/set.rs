@@ -50,6 +50,14 @@ fn preflight(entry: &BootEntry) -> Result<()> {
         )));
     }
 
+    if entry.flags.contains(crate::model::EntryFlags::DISABLED) {
+        return Err(Error::validation(format!(
+            "'{}' is disabled in the bootloader config, so it will not be offered at boot; \
+             remove its `disabled` line first",
+            entry.title
+        )));
+    }
+
     if entry.flags.contains(crate::model::EntryFlags::SUBMENU) {
         return Err(Error::validation(format!(
             "'{}' is a submenu, not a bootable entry",

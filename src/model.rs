@@ -223,6 +223,8 @@ impl EntryFlags {
     pub const SUBMENU: EntryFlags = EntryFlags(1 << 8);
     /// Entry chainloads another operating system rather than a Linux kernel.
     pub const CHAINLOAD: EntryFlags = EntryFlags(1 << 9);
+    /// Present in the config but switched off, so the loader will not offer it.
+    pub const DISABLED: EntryFlags = EntryFlags(1 << 10);
 
     pub fn contains(self, other: EntryFlags) -> bool {
         self.0 & other.0 == other.0
@@ -256,6 +258,7 @@ impl EntryFlags {
             (EntryFlags::RECOVERY, "RECOVERY"),
             (EntryFlags::CHAINLOAD, "CHAINLOAD"),
             (EntryFlags::SUBMENU, "SUBMENU"),
+            (EntryFlags::DISABLED, "DISABLED"),
             (EntryFlags::FOREIGN_ARCH, "FOREIGN"),
             (EntryFlags::BROKEN, "BROKEN"),
         ] {

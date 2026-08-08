@@ -125,6 +125,7 @@ pub fn badge(label: &str) -> String {
         "RUNNING" => Style::BoldCyan,
         "BROKEN" | "FOREIGN" => Style::BoldRed,
         "RECOVERY" => Style::Yellow,
+        "DISABLED" => Style::Dim,
         "EFI-STUB" | "UKI" => Style::Magenta,
         _ => Style::Dim,
     };

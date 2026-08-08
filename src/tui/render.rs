@@ -41,6 +41,7 @@ fn badge_style(label: &str) -> Style {
         "RUNNING" => Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
         "BROKEN" | "FOREIGN" => Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
         "RECOVERY" => Style::new().fg(Color::Yellow),
+        "DISABLED" => Style::new().fg(Color::DarkGray),
         "EFI-STUB" | "UKI" => Style::new().fg(Color::Magenta),
         _ => Style::new().fg(Color::DarkGray),
     }
