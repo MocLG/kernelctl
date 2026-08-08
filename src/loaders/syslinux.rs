@@ -256,25 +256,29 @@ impl Syslinux {
 }
 
 /// Replace a top-level directive's value, preserving the rest of the file.
+/// Set a global directive, leaving exactly one of it in the file.
+///
+/// `DEFAULT` and `TIMEOUT` are global wherever they appear - syslinux reads
+/// the file as a flat sequence, so a `LABEL` block does not scope them and the
+/// last assignment is the one that counts. Rewriting only the copy above the
+/// first `LABEL` would leave a later one in charge, and appending settings to
+/// the end of a config is exactly what people do by hand. Every occurrence is
+/// therefore collapsed into one. Directives that belong to a label are spelled
+/// `MENU DEFAULT`, whose keyword is `MENU`, so they are untouched.
 fn set_directive(text: &str, keyword: &str, value: &str) -> String {
     let mut out: Vec<String> = Vec::new();
     let mut replaced = false;
-    let mut seen_label = false;
 
     for line in text.lines() {
-        let directive = split_directive(line);
-        if directive.as_ref().is_some_and(|(k, _)| k == "LABEL") {
-            seen_label = true;
-        }
-        // Only touch the directive while it is still in the global section;
-        // the same keyword inside a LABEL block means something else.
-        let is_target =
-            !seen_label && directive.as_ref().is_some_and(|(k, _)| k == keyword);
+        let is_target = split_directive(line).is_some_and(|(k, _)| k == keyword);
 
-        if is_target && !replaced {
-            out.push(format!("{keyword} {value}"));
-            replaced = true;
-        } else if !is_target {
+        if is_target {
+            if !replaced {
+                out.push(format!("{keyword} {value}"));
+                replaced = true;
+            }
+            // Later copies are dropped; syslinux would honour those instead.
+        } else {
             out.push(line.to_string());
         }
     }
@@ -524,6 +528,31 @@ LABEL rescue
         assert_eq!(cfg.default.as_deref(), Some("rescue"));
         assert_eq!(cfg.labels.len(), 2);
         assert_eq!(cfg.timeout_tenths, Some(50));
+    }
+
+    #[test]
+    fn a_global_written_below_the_labels_is_the_one_rewritten() {
+        // syslinux reads the file as a flat sequence and the last DEFAULT
+        // wins, so a copy appended under the labels - a normal thing to do by
+        // hand - would otherwise keep deciding what boots.
+        let text = format!("{CONF}\nDEFAULT linux\n");
+        let out = set_directive(&text, "DEFAULT", "rescue");
+
+        assert_eq!(
+            out.lines().filter(|l| l.trim_start().starts_with("DEFAULT ")).count(),
+            1,
+            "a second DEFAULT would override the one we wrote"
+        );
+        assert_eq!(parse(&out).default.as_deref(), Some("rescue"));
+        assert_eq!(parse(&out).labels.len(), 2);
+    }
+
+    #[test]
+    fn a_labels_own_menu_default_is_left_alone() {
+        let text = "DEFAULT linux\n\nLABEL linux\n    KERNEL /vmlinuz\n    MENU DEFAULT\n";
+        let out = set_directive(text, "DEFAULT", "rescue");
+        assert!(out.contains("    MENU DEFAULT"), "the label's own marker was rewritten");
+        assert_eq!(parse(&out).default.as_deref(), Some("rescue"));
     }
 
     #[test]
