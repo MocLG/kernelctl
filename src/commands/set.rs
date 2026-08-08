@@ -26,46 +26,14 @@ use crate::ui::style;
 
 use super::{dry_run_notice, success, App};
 
-/// Refuse to point the bootloader at files that are not there.
+/// Refuse to point the bootloader at something that will not boot.
 ///
 /// A missing kernel is not discovered until the machine fails to boot, at
 /// which point the user is at a firmware prompt with no way to undo it. This
-/// is the single most valuable check in the program.
+/// is the single most valuable check in the program. The rules are shared with
+/// the interactive screen so the two cannot disagree about what is bootable.
 fn preflight(entry: &BootEntry) -> Result<()> {
-    let missing: Vec<String> = entry
-        .referenced_files()
-        .iter()
-        .filter(|p| p.is_absolute() && !p.exists())
-        .map(|p| p.display().to_string())
-        .collect();
-
-    if !missing.is_empty() {
-        return Err(Error::validation(format!(
-            "'{}' references {} that {} not exist:\n  {}\n\
-             booting it would drop the machine to a firmware prompt",
-            entry.title,
-            if missing.len() == 1 { "a file" } else { "files" },
-            if missing.len() == 1 { "does" } else { "do" },
-            missing.join("\n  ")
-        )));
-    }
-
-    if entry.flags.contains(crate::model::EntryFlags::DISABLED) {
-        return Err(Error::validation(format!(
-            "'{}' is disabled in the bootloader config, so it will not be offered at boot; \
-             remove its `disabled` line first",
-            entry.title
-        )));
-    }
-
-    if entry.flags.contains(crate::model::EntryFlags::SUBMENU) {
-        return Err(Error::validation(format!(
-            "'{}' is a submenu, not a bootable entry",
-            entry.title
-        )));
-    }
-
-    Ok(())
+    crate::preflight::check_detailed(entry)
 }
 
 /// Warn where the choice is legal but probably not what was meant.

@@ -24,6 +24,7 @@ mod commands;
 mod error;
 mod loaders;
 mod model;
+mod preflight;
 mod sys;
 mod tui;
 mod ui;

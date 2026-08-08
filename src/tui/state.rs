@@ -25,7 +25,7 @@
 
 use crate::commands::{clean, App};
 use crate::error::Result;
-use crate::loaders::{Capabilities, Timeout};
+use crate::loaders::{Bootloader, Capabilities, Timeout};
 use crate::model::BootEntry;
 
 use super::input::TextInput;
@@ -43,6 +43,27 @@ pub enum Level {
 pub struct Message {
     pub level: Level,
     pub text: String,
+}
+
+/// What an action that succeeded wants the footer to say.
+///
+/// Carries a level because "written" and "in effect" are not the same thing on
+/// every bootloader, and the footer should not claim the stronger one.
+#[derive(Debug, Clone)]
+pub struct Done {
+    pub level: Level,
+    pub text: String,
+}
+
+impl Done {
+    fn ok(text: impl Into<String>) -> Done {
+        Done { level: Level::Success, text: text.into() }
+    }
+
+    /// Written, but the bootloader has not picked it up yet.
+    fn pending(text: impl Into<String>) -> Done {
+        Done { level: Level::Warning, text: text.into() }
+    }
 }
 
 /// Which overlay is open, and its state.
@@ -206,10 +227,17 @@ impl<'a> Tui<'a> {
     }
 
     /// Run an action, reporting the outcome in the footer either way.
-    fn attempt(&mut self, what: &str, action: impl FnOnce(&mut Self) -> Result<String>) {
+    ///
+    /// An action that worked can still need reporting as a warning: on GRUB 2
+    /// and LILO a write is not a change until their own command has run, and
+    /// colouring that green would tell the user something untrue.
+    fn attempt(&mut self, what: &str, action: impl FnOnce(&mut Self) -> Result<Done>) {
         match action(self) {
-            Ok(message) => {
-                self.success(message);
+            Ok(done) => {
+                match done.level {
+                    Level::Warning => self.warn(done.text),
+                    _ => self.success(done.text),
+                }
                 self.reload();
             }
             Err(e) => self.error(format!("{what} failed: {e}")),
@@ -218,25 +246,36 @@ impl<'a> Tui<'a> {
 
     // ---- actions -------------------------------------------------------
 
-    /// Refuse to point the bootloader at files that are not on disk.
+    /// Refuse to point the bootloader at something that will not boot.
+    ///
+    /// Shares its rules with the command line, phrased to fit one footer line.
+    /// This used to be a second implementation that had fallen behind - it
+    /// accepted a disabled entry the command line refused.
     fn preflight(entry: &BootEntry) -> Result<()> {
-        let missing: Vec<String> = entry
-            .referenced_files()
-            .iter()
-            .filter(|p| p.is_absolute() && !p.exists())
-            .map(|p| p.display().to_string())
-            .collect();
+        crate::preflight::check_short(entry)
+    }
 
-        if !missing.is_empty() {
-            return Err(crate::error::Error::validation(format!(
-                "{} is missing: booting this entry would fail",
-                missing.join(", ")
+    /// Finish a write the way the command line does.
+    ///
+    /// GRUB 2 and LILO need a command run before a written change reaches the
+    /// boot path. Without this the screen said "default is now X" and the
+    /// machine went on booting the old entry, with nothing on screen to say so.
+    fn settle(&self, loader: &dyn Bootloader, done: String) -> Result<Done> {
+        let Some(command) = loader.pending_activation() else { return Ok(Done::ok(done)) };
+
+        if !self.app.args.apply {
+            return Ok(Done::pending(format!(
+                "{done} - not in effect until `{command}` runs; restart with --apply \
+                 to have kernelctl run it"
             )));
         }
-        if entry.flags.contains(crate::model::EntryFlags::SUBMENU) {
-            return Err(crate::error::Error::validation("this is a submenu, not a boot entry"));
-        }
-        Ok(())
+
+        crate::sys::exec::run(&command.program, &command.args).map_err(|e| {
+            crate::error::Error::validation(format!(
+                "written, but `{command}` failed so it is not in effect: {e}"
+            ))
+        })?;
+        Ok(Done::ok(format!("{done}; `{command}` run")))
     }
 
     pub fn set_default(&mut self) {
@@ -246,7 +285,7 @@ impl<'a> Tui<'a> {
             require(loader, Capabilities::SET_DEFAULT, "changing the default entry")?;
             Self::preflight(&entry)?;
             loader.set_default(&tui.app.context(), &entry)?;
-            Ok(format!("default is now '{}'", entry.title))
+            tui.settle(loader, format!("default is now '{}'", entry.title))
         });
     }
 
@@ -257,7 +296,7 @@ impl<'a> Tui<'a> {
             require(loader, Capabilities::SET_ONESHOT, "one-shot boot entries")?;
             Self::preflight(&entry)?;
             loader.set_oneshot(&tui.app.context(), &entry)?;
-            Ok(format!("next boot only: '{}'", entry.title))
+            tui.settle(loader, format!("next boot only: '{}'", entry.title))
         });
     }
 
@@ -266,7 +305,7 @@ impl<'a> Tui<'a> {
             let loader = tui.app.loader()?;
             require(loader, Capabilities::SET_ONESHOT, "one-shot boot entries")?;
             loader.clear_oneshot(&tui.app.context())?;
-            Ok("pending one-shot entry cleared".to_string())
+            Ok(Done::ok("pending one-shot entry cleared"))
         });
     }
 
@@ -311,7 +350,7 @@ impl<'a> Tui<'a> {
         self.attempt("cmdline set", |tui| {
             let loader = tui.app.loader()?;
             loader.set_cmdline(&tui.app.context(), &entry, &cmdline)?;
-            Ok(format!("updated kernel parameters for '{}'", entry.title))
+            tui.settle(loader, format!("updated kernel parameters for '{}'", entry.title))
         });
     }
 
@@ -337,7 +376,7 @@ impl<'a> Tui<'a> {
             let loader = tui.app.loader()?;
             require(loader, Capabilities::TIMEOUT, "menu timeout configuration")?;
             loader.set_timeout(&tui.app.context(), timeout)?;
-            Ok(format!("boot menu timeout is now {timeout}"))
+            tui.settle(loader, format!("boot menu timeout is now {timeout}"))
         });
     }
 
@@ -430,7 +469,7 @@ impl<'a> Tui<'a> {
             PendingAction::Backup => {
                 self.attempt("backup", |tui| {
                     crate::commands::backup::backup(tui.app, None)?;
-                    Ok("bootloader configuration backed up".to_string())
+                    Ok(Done::ok("bootloader configuration backed up"))
                 });
             }
         }
@@ -496,6 +535,53 @@ mod tests {
         // they silently pass as root and silently fail everywhere else.
         app.privileges = Privileges { root: true, uid: 0, via_sudo: false };
         (tree, app)
+    }
+
+    /// A GRUB tree whose menu takes its default from a fixed index, so a write
+    /// to grubenv is not yet a change.
+    fn grub_fixture(tag: &str) -> (TempTree, App) {
+        let tree = TempTree::new(tag);
+        tree.file(
+            "grub/grub.cfg",
+            "set default=\"0\"\n\
+             menuentry 'Debian' $menuentry_id_option 'gnulinux-simple-abc' {\n\
+             \tlinux /vmlinuz-6.11.0-9-generic root=UUID=abc ro\n\
+             \tinitrd /initrd.img-6.11.0-9-generic\n\
+             }\n\
+             menuentry 'Debian (other)' $menuentry_id_option 'gnulinux-other-abc' {\n\
+             \tlinux /vmlinuz-6.11.0-9-generic root=UUID=abc ro single\n\
+             \tinitrd /initrd.img-6.11.0-9-generic\n\
+             }\n",
+        );
+        let mut env = String::from(crate::loaders::grubenv::SIGNATURE);
+        env.push_str("saved_entry=gnulinux-simple-abc\n");
+        env.push_str(&"#".repeat(crate::loaders::grubenv::BLOCK_SIZE - env.len()));
+        tree.file("grub/grubenv", &env);
+        fake_kernel(&tree, "vmlinuz-6.11.0-9-generic");
+        fake_kernel(&tree, "initrd.img-6.11.0-9-generic");
+
+        let root = tree.root.display().to_string();
+        let cli = Cli::try_parse_from(["kernelctl", "--boot-dir", &root, "tui"]).unwrap();
+        let mut app = App::new(cli.global);
+        app.privileges = Privileges { root: true, uid: 0, via_sudo: false };
+        (tree, app)
+    }
+
+    #[test]
+    fn a_change_grub_has_not_picked_up_is_a_warning_not_a_success() {
+        // The screen used to report this green and say "default is now X"
+        // while the machine went on booting the old entry.
+        let (_tree, app) = grub_fixture("tui-grub-pending");
+        let mut tui = Tui::new(&app);
+        let target =
+            tui.visible.iter().position(|i| tui.entries[*i].title.contains("other")).unwrap();
+        tui.cursor = target;
+        tui.set_default();
+
+        let message = tui.message.as_ref().expect("something was reported");
+        assert_eq!(message.level, Level::Warning, "reported as done: {}", message.text);
+        assert!(message.text.contains("update-grub"), "does not name the command: {}", message.text);
+        assert!(message.text.contains("--apply"), "does not say how to run it: {}", message.text);
     }
 
     #[test]

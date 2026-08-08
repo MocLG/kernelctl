@@ -131,7 +131,12 @@ command line, and a footer of keybindings.
 | `?` / `h` | help overlay |
 | `q` / `Esc` | quit |
 
-Every action drives the same code the CLI does, so the two cannot diverge.
+Every action drives the same bootloader adapter the CLI does, and shares the
+same rules for what may be made the default and for reporting a change a
+bootloader has not picked up yet — so the two screens cannot disagree about
+what is safe or about whether something took effect. `--apply` works here too;
+without it, a change GRUB 2 or LILO has not applied is shown as a warning
+rather than as done.
 
 ## Safety
 
