@@ -316,24 +316,109 @@ pub fn annotate(entries: &mut [BootEntry], host: &Host) {
     }
 }
 
+/// Compare two entries by the qualities a reader cares about, most important
+/// first. `flags` is passed separately so a submenu can be ordered by the best
+/// of what it contains rather than by its own empty state.
+fn compare_entries(a: &BootEntry, a_flags: EntryFlags, b: &BootEntry, b_flags: EntryFlags) -> std::cmp::Ordering {
+    let rank = |f: EntryFlags| {
+        (
+            f.contains(EntryFlags::DEFAULT),
+            f.contains(EntryFlags::ONESHOT),
+            f.contains(EntryFlags::RUNNING),
+        )
+    };
+    let (ad, ao, ar) = rank(a_flags);
+    let (bd, bo, br) = rank(b_flags);
+
+    bd.cmp(&ad)
+        .then_with(|| bo.cmp(&ao))
+        .then_with(|| br.cmp(&ar))
+        // Tuple is (b, a) so versions compare descending - newest first.
+        .then_with(|| match (&b.version, &a.version) {
+            (Some(x), Some(y)) => x.cmp(y),
+            // b has a version and a does not, so a sorts after b.
+            (Some(_), None) => std::cmp::Ordering::Greater,
+            (None, Some(_)) => std::cmp::Ordering::Less,
+            (None, None) => std::cmp::Ordering::Equal,
+        })
+        .then_with(|| a.title.cmp(&b.title))
+}
+
 /// Sort entries the way a user expects to read them: default first, then the
 /// running kernel, then newest version down, then title.
-pub fn sort_entries(entries: &mut [BootEntry]) {
-    entries.sort_by(|a, b| {
-        b.is_default()
-            .cmp(&a.is_default())
-            .then_with(|| b.is_oneshot().cmp(&a.is_oneshot()))
-            .then_with(|| b.is_running().cmp(&a.is_running()))
-            // Tuple is (b, a) so versions compare descending - newest first.
-            .then_with(|| match (&b.version, &a.version) {
-                (Some(x), Some(y)) => x.cmp(y),
-                // b has a version and a does not, so a sorts after b.
-                (Some(_), None) => std::cmp::Ordering::Greater,
-                (None, Some(_)) => std::cmp::Ordering::Less,
-                (None, None) => std::cmp::Ordering::Equal,
-            })
-            .then_with(|| a.title.cmp(&b.title))
-    });
+///
+/// Nesting is preserved. A flat sort would float a submenu's children above
+/// the submenu itself - they carry kernel versions and the container does not -
+/// leaving indented entries sitting above the parent they belong to. Siblings
+/// are therefore sorted within their own level and each subtree stays together.
+/// A submenu is ordered by the best entry it contains, so the one holding the
+/// default does not sink to the bottom for having no version of its own.
+pub fn sort_entries(entries: &mut Vec<BootEntry>) {
+    // The common case is a flat list, where the tree walk would be wasted work.
+    if entries.iter().all(|e| e.depth == 0) {
+        entries.sort_by(|a, b| compare_entries(a, a.flags, b, b.flags));
+        return;
+    }
+
+    // Adapters emit entries in document order, so an entry's parent is the
+    // most recent one at a shallower depth.
+    let n = entries.len();
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut roots: Vec<usize> = Vec::new();
+    let mut ancestors: Vec<usize> = Vec::new();
+
+    for i in 0..n {
+        ancestors.truncate(entries[i].depth as usize);
+        match ancestors.last() {
+            Some(&parent) => children[parent].push(i),
+            None => roots.push(i),
+        }
+        ancestors.push(i);
+    }
+
+    // Flags a node is ordered by: its own, plus those of everything beneath it.
+    fn subtree_flags(entries: &[BootEntry], children: &[Vec<usize>], i: usize) -> EntryFlags {
+        let mut flags = entries[i].flags;
+        for &c in &children[i] {
+            flags = flags | subtree_flags(entries, children, c);
+        }
+        flags
+    }
+
+    let effective: Vec<EntryFlags> =
+        (0..n).map(|i| subtree_flags(entries, &children, i)).collect();
+
+    let sort_level = |level: &mut Vec<usize>| {
+        level.sort_by(|&x, &y| {
+            compare_entries(&entries[x], effective[x], &entries[y], effective[y])
+        });
+    };
+
+    let mut order: Vec<usize> = Vec::with_capacity(n);
+    let mut sorted_children = children.clone();
+    for level in sorted_children.iter_mut() {
+        sort_level(level);
+    }
+    sort_level(&mut roots);
+
+    // Depth-first, so every child follows the parent it is indented under.
+    fn flatten(i: usize, children: &[Vec<usize>], order: &mut Vec<usize>) {
+        order.push(i);
+        for &c in &children[i] {
+            flatten(c, children, order);
+        }
+    }
+    for &r in &roots {
+        flatten(r, &sorted_children, &mut order);
+    }
+
+    // Reorder in place by taking the entries out and putting them back.
+    let mut taken: Vec<Option<BootEntry>> = entries.drain(..).map(Some).collect();
+    for i in order {
+        if let Some(e) = taken[i].take() {
+            entries.push(e);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -396,6 +481,55 @@ mod tests {
 
         let titles: Vec<_> = entries.iter().map(|e| e.title.as_str()).collect();
         assert_eq!(titles, vec!["chosen", "newest", "old"]);
+    }
+
+    #[test]
+    fn nested_entries_stay_under_their_parent() {
+        // Found by running against a real grub-mkconfig output: a submenu
+        // carries no kernel version, so a flat version sort floated its
+        // children above it and the indentation contradicted the order.
+        let mut entries = vec![
+            entry("GNU/Linux", Some("6.12.0")),
+            entry("Advanced options", None),
+            entry("with Linux 6.12.0", Some("6.12.0")),
+            entry("with Linux 6.11.0", Some("6.11.0")),
+            entry("UEFI Firmware Settings", None),
+        ];
+        entries[2].depth = 1;
+        entries[3].depth = 1;
+
+        sort_entries(&mut entries);
+
+        let order: Vec<_> = entries.iter().map(|e| e.title.as_str()).collect();
+        assert_eq!(
+            order,
+            vec![
+                "GNU/Linux",
+                "Advanced options",
+                "with Linux 6.12.0",
+                "with Linux 6.11.0",
+                "UEFI Firmware Settings",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_submenu_holding_the_default_sorts_to_the_top() {
+        // The container has no version of its own, so without inheriting the
+        // state of its children it would sink below every versioned entry -
+        // hiding the entry that actually boots.
+        let mut entries = vec![
+            entry("Plain", Some("6.12.0")),
+            entry("Advanced options", None),
+            entry("nested default", Some("6.9.0")),
+        ];
+        entries[2].depth = 1;
+        entries[2].flags.insert(EntryFlags::DEFAULT);
+
+        sort_entries(&mut entries);
+
+        let order: Vec<_> = entries.iter().map(|e| e.title.as_str()).collect();
+        assert_eq!(order, vec!["Advanced options", "nested default", "Plain"]);
     }
 
     #[test]
