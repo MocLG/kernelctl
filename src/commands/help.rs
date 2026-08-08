@@ -70,11 +70,12 @@ const COMMANDS: &[(&str, &str)] = &[
 ];
 
 const FLAGS: &[(&str, &str)] = &[
-    ("--boot-dir <DIR>", "add a search location; repeatable, wins over auto-discovery"),
+    ("--boot-dir <DIR>", "search here instead of auto-discovering; repeatable"),
     ("--loader <NAME>", "act on a specific bootloader instead of the primary one"),
     ("--all", "include entries from every detected bootloader"),
     ("--json", "machine-readable output"),
     ("--dry-run", "report what would change without writing"),
+    ("--apply", "also run the command GRUB 2 or LILO needs to pick the change up"),
     ("-y, --yes", "assume yes for confirmation prompts"),
     ("--color <WHEN>", "auto, always or never"),
     ("-v, --verbose", "print extra detail, including every file written"),

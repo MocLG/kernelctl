@@ -95,7 +95,14 @@ guess — booting the wrong entry is not something you find out about until the
 machine reboots.
 
 Global flags: `--boot-dir DIR`, `--loader NAME`, `--all`, `--json`, `--dry-run`,
-`-y/--yes`, `--color WHEN`, `-v/--verbose`.
+`--apply`, `-y/--yes`, `--color WHEN`, `-v/--verbose`.
+
+`--apply` matters on exactly two loaders. GRUB 2 takes its default from a
+generated menu and LILO compiles its config into the boot sector, so on those
+two a write is not yet a change — without `--apply` kernelctl says so and names
+the command (`update-grub`, `lilo`); with it, kernelctl runs that command and
+reports the result. Everywhere else the flag does nothing, because the file
+kernelctl wrote is the file the bootloader reads.
 
 `--boot-dir` **replaces** the automatic search rather than adding to it, so
 `kernelctl --boot-dir /mnt/rescue/boot list` describes that tree alone — the running
