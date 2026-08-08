@@ -97,10 +97,12 @@ pub fn set_default(app: &App, pattern: &str) -> Result<()> {
     preflight(&entry)?;
     advisories(app, &entry);
 
-    if entry.is_default() {
-        println!("'{}' is already the default", entry.title);
-        return Ok(());
-    }
+    // Deliberately no early return when the entry already looks like the
+    // default. Matching is lenient - a stored value that GRUB cannot actually
+    // resolve still identifies the entry - so skipping the write would leave
+    // an unbootable selection in place. Writing is idempotent and keeps a
+    // .bak, so re-asserting costs nothing.
+    let already = entry.is_default();
 
     if app.args.dry_run {
         dry_run_notice(&format!("set the default entry to '{}' ({})", entry.title, entry.id));
@@ -109,7 +111,11 @@ pub fn set_default(app: &App, pattern: &str) -> Result<()> {
 
     let outcomes = loader.set_default(&app.context(), &entry)?;
 
-    success(&format!("default boot entry is now {}", style::bold(&entry.title)));
+    if already {
+        success(&format!("default boot entry re-asserted as {}", style::bold(&entry.title)));
+    } else {
+        success(&format!("default boot entry is now {}", style::bold(&entry.title)));
+    }
     app.report_writes(&outcomes);
     app.print_pending(loader);
     app.print_note(loader);
