@@ -36,7 +36,7 @@ use crate::model::{BootEntry, EntryFlags, LoaderKind};
 use crate::sys::atomic::{self, WriteOutcome};
 use crate::sys::exec;
 
-use super::{scan::BootRoots, Bootloader, Capabilities, Context, Timeout};
+use super::{scan::BootRoots, Activation, Bootloader, Capabilities, Context, Timeout};
 
 /// One `image=` or `other=` stanza.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -248,8 +248,8 @@ impl Bootloader for Lilo {
     /// is the same trap as GRUB 2's generated menu and is reported the same
     /// way - as a warning, not a note - because a reboot without it silently
     /// brings up the previous entry.
-    fn pending_activation(&self) -> Option<String> {
-        Some("lilo".to_string())
+    fn pending_activation(&self) -> Option<Activation> {
+        Some(Activation::new("lilo", Vec::<String>::new()))
     }
 
     fn entries(&self, _ctx: &Context) -> Result<Vec<BootEntry>> {
@@ -502,7 +502,7 @@ other=/dev/sda2
         // boot sector, so this has to be reported as pending rather than as a
         // completed change - confirmed on a VM, where a reboot after
         // set-default alone still came up on the previous entry.
-        assert_eq!(loader.pending_activation().as_deref(), Some("lilo"));
+        assert_eq!(loader.pending_activation().unwrap().to_string(), "lilo");
         assert!(loader.post_write_note().unwrap().contains("lilo"));
     }
 

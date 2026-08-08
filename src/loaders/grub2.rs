@@ -46,7 +46,7 @@ use super::{
     grubenv::{self, GrubEnv},
     resolve_under,
     scan::BootRoots,
-    Bootloader, Capabilities, Context, Timeout,
+    Activation, Bootloader, Capabilities, Context, Timeout,
 };
 
 /// Variable holding the persistent default.
@@ -517,18 +517,17 @@ impl Bootloader for Grub2 {
             .collect()
     }
 
-    fn pending_activation(&self) -> Option<String> {
+    fn pending_activation(&self) -> Option<Activation> {
         if self.honours_saved_entry() {
             return None;
         }
         // The menu takes its default from a fixed index, so the environment
         // block we wrote is not consulted until the config is regenerated.
-        let regen = if crate::sys::exec::which("update-grub").is_some() {
-            "update-grub".to_string()
+        if crate::sys::exec::which("update-grub").is_some() {
+            Some(Activation::new("update-grub", Vec::<String>::new()))
         } else {
-            format!("grub-mkconfig -o {}", self.cfg.display())
-        };
-        Some(regen)
+            Some(Activation::new("grub-mkconfig", ["-o".to_string(), self.cfg.display().to_string()]))
+        }
     }
 
     fn post_write_note(&self) -> Option<String> {

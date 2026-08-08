@@ -168,6 +168,43 @@ impl Context<'_> {
     }
 }
 
+/// A command that must run before a written change reaches the boot path.
+///
+/// Held apart from its rendered text so `--apply` can execute it rather than
+/// only print it. GRUB 2 regenerates its menu and LILO recompiles its boot
+/// sector; in both cases the file kernelctl wrote is not what the firmware
+/// reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Activation {
+    pub program: String,
+    pub args: Vec<String>,
+}
+
+impl Activation {
+    pub fn new<I, S>(program: impl Into<String>, args: I) -> Activation
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Activation {
+            program: program.into(),
+            args: args.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl std::fmt::Display for Activation {
+    /// Rendered the way a user would type it, since that is what the
+    /// instructions tell them to do.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.program)?;
+        for arg in &self.args {
+            write!(f, " {arg}")?;
+        }
+        Ok(())
+    }
+}
+
 /// One bootloader's implementation.
 ///
 /// Only `kind`, `capabilities`, `config_files` and `entries` are required.
@@ -204,7 +241,7 @@ pub trait Bootloader {
     /// Returning `Some` means a reboot right now would *not* use the new
     /// setting, so callers must say so prominently rather than reporting a
     /// bare success.
-    fn pending_activation(&self) -> Option<String> {
+    fn pending_activation(&self) -> Option<Activation> {
         None
     }
 
@@ -579,5 +616,18 @@ mod tests {
         annotate(&mut entries, &host);
         assert!(entries[0].flags.contains(EntryFlags::RECOVERY));
         assert!(!entries[1].flags.contains(EntryFlags::RECOVERY));
+    }
+
+    #[test]
+    fn an_activation_reads_back_as_the_command_a_user_would_type() {
+        // The same value is both printed in the warning and executed under
+        // --apply, so the rendering has to match what it actually runs.
+        let bare = Activation::new("lilo", Vec::<String>::new());
+        assert_eq!(bare.to_string(), "lilo");
+        assert!(bare.args.is_empty());
+
+        let with_args = Activation::new("grub-mkconfig", ["-o", "/boot/grub/grub.cfg"]);
+        assert_eq!(with_args.to_string(), "grub-mkconfig -o /boot/grub/grub.cfg");
+        assert_eq!(with_args.args, vec!["-o", "/boot/grub/grub.cfg"]);
     }
 }

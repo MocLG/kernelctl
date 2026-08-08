@@ -168,18 +168,45 @@ impl App {
         }
     }
 
-    /// Report a change that has been written but is not yet in effect.
+    /// Finish the job on a loader that needs a command run, or say so.
     ///
-    /// Printed as a warning rather than a note: a user who reboots without
-    /// running the command would get the old entry despite having been told
-    /// the change succeeded.
-    pub fn print_pending(&self, loader: &dyn Bootloader) {
-        if let Some(command) = loader.pending_activation() {
+    /// With `--apply` the command is run here, so `set-default` means what it
+    /// says on GRUB 2 and LILO as well as everywhere else. Without it the
+    /// change is reported as pending - a warning rather than a note, because a
+    /// user who reboots without running the command gets the old entry despite
+    /// having been told the change succeeded.
+    ///
+    /// Not the default: regenerating a GRUB menu re-runs every script in
+    /// /etc/grub.d and picks up unrelated edits that were sitting in
+    /// /etc/default/grub, which is a much larger action than the one that was
+    /// asked for.
+    pub fn apply_or_warn(&self, loader: &dyn Bootloader) -> Result<()> {
+        let Some(command) = loader.pending_activation() else { return Ok(()) };
+
+        if !self.args.apply {
             warn(&format!(
                 "not in effect yet - the change is written, but this bootloader only picks \
-                 it up once `{command}` has been run"
+                 it up once `{command}` has been run; pass --apply to have kernelctl run it"
             ));
+            return Ok(());
         }
+
+        if self.args.dry_run {
+            dry_run_notice(&format!("run `{command}` to put the change into effect"));
+            return Ok(());
+        }
+
+        // A failure here leaves the config written but not in effect, which is
+        // exactly the state the warning above describes, so the error says so
+        // rather than implying nothing happened.
+        note_line(&format!("running `{command}`"));
+        crate::sys::exec::run(&command.program, &command.args).map_err(|e| {
+            Error::validation(format!(
+                "the change was written but `{command}` failed, so it is not in effect yet: {e}"
+            ))
+        })?;
+        success(&format!("`{command}` finished; the change is now in effect"));
+        Ok(())
     }
 
     /// Report what a write touched, including where the backup went.

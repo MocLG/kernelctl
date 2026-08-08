@@ -117,7 +117,7 @@ pub fn set_default(app: &App, pattern: &str) -> Result<()> {
         success(&format!("default boot entry is now {}", style::bold(&entry.title)));
     }
     app.report_writes(&outcomes);
-    app.print_pending(loader);
+    app.apply_or_warn(loader)?;
     app.print_note(loader);
 
     Ok(())

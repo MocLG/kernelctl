@@ -70,6 +70,13 @@ pub struct GlobalArgs {
     #[arg(long, global = true)]
     pub dry_run: bool,
 
+    /// Also run the command the bootloader needs for the change to take
+    /// effect, instead of only naming it. GRUB 2 regenerates its menu and LILO
+    /// rewrites its boot sector; without this, those two write the config but
+    /// the next boot still uses the old entry.
+    #[arg(long, global = true)]
+    pub apply: bool,
+
     /// Assume yes for confirmation prompts.
     #[arg(short = 'y', long, global = true)]
     pub yes: bool,
