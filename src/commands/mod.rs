@@ -176,8 +176,8 @@ impl App {
     pub fn print_pending(&self, loader: &dyn Bootloader) {
         if let Some(command) = loader.pending_activation() {
             warn(&format!(
-                "not in effect yet - this bootloader takes its default from its generated \
-                 menu, so run `{command}` to apply it"
+                "not in effect yet - the change is written, but this bootloader only picks \
+                 it up once `{command}` has been run"
             ));
         }
     }
