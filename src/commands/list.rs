@@ -124,7 +124,13 @@ pub fn loaders(app: &App) -> Result<()> {
         println!("no supported bootloader detected");
         println!(
             "{}",
-            style::dim("searched: /boot, /efi, /boot/efi, /etc; pass --boot-dir to add a location")
+            // "add" would be wrong and dangerously so: someone auditing a
+            // rescue image needs to know --boot-dir replaces this list, or
+            // they will believe they inspected both when they inspected one.
+            style::dim(
+                "searched: /boot, /efi, /boot/efi, /etc; \
+                 pass --boot-dir to search elsewhere instead of these",
+            )
         );
         return Ok(());
     }

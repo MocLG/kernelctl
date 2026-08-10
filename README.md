@@ -26,16 +26,29 @@ statically linked and depend on nothing at all, so they run on any distribution 
 of its glibc version:
 
 ```sh
-curl -LO https://github.com/MocLG/kernelctl/releases/latest/download/kernelctl-<version>-x86_64-unknown-linux-musl.tar.gz
-tar xzf kernelctl-*.tar.gz
-sudo install -m755 kernelctl-*/kernelctl /usr/local/bin/kernelctl
+curl -fsSLO https://github.com/MocLG/kernelctl/releases/download/v1.0.0/kernelctl-v1.0.0-x86_64-unknown-linux-musl.tar.gz
+tar xzf kernelctl-v1.0.0-x86_64-unknown-linux-musl.tar.gz
+sudo install -m755 kernelctl-v1.0.0-x86_64-unknown-linux-musl/kernelctl /usr/local/bin/kernelctl
 kernelctl status
 ```
 
-Builds are published for `x86_64` and `aarch64` (glibc and musl) and for `armv7` (musl).
-Verify a download against the `SHA256SUMS` file attached to the release:
+Asset names carry the version, so there is no fixed "latest" URL to hard-code. To
+always fetch the newest release, resolve the tag first:
 
 ```sh
+tag=$(curl -fsSL https://api.github.com/repos/MocLG/kernelctl/releases/latest \
+      | grep -m1 '"tag_name"' | cut -d'"' -f4)
+curl -fsSLO "https://github.com/MocLG/kernelctl/releases/download/$tag/kernelctl-$tag-x86_64-unknown-linux-musl.tar.gz"
+```
+
+Builds are published for `x86_64` and `aarch64` (glibc and musl) and for `armv7` (musl);
+substitute the target you want. Verify a download against the `SHA256SUMS` file attached
+to the same release — note that a mistyped asset name returns an HTML error page rather
+than failing outright, which is what a checksum mismatch on a fresh download usually means
+(`curl -f` above turns that into a clean failure instead):
+
+```sh
+curl -fsSLO https://github.com/MocLG/kernelctl/releases/download/v1.0.0/SHA256SUMS
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
@@ -140,12 +153,17 @@ rather than as done.
 
 ## Safety
 
-- **Atomic writes.** Every config change copies the original to `.bak`, writes
-  a temp file in the same directory, fsyncs it, renames it over the target,
-  then fsyncs the directory. A crash leaves either the old file or the new one,
-  never a truncated one. The exception is GRUB's `grubenv`, which is rewritten
-  in place on purpose: it must stay exactly 1024 bytes and must not move on
-  disk, or GRUB cannot update it from the boot menu.
+- **Atomic writes.** Every config change copies the file's **previous contents**
+  to `.bak`, writes a temp file in the same directory, fsyncs it, renames it
+  over the target, then fsyncs the directory. A crash leaves either the old file
+  or the new one, never a truncated one. The exception is GRUB's `grubenv`,
+  which is rewritten in place on purpose: it must stay exactly 1024 bytes and
+  must not move on disk, or GRUB cannot update it from the boot menu.
+  `.bak` is one step of undo, not a history — it is replaced on every write, so
+  after two edits it holds the state before the second, not the original. Use
+  `kernelctl backup` for a copy that survives further changes; boot filesystems
+  are small and often FAT, so kernelctl does not accumulate timestamped copies
+  there on its own.
 - **Pre-flight validation.** Before changing what boots, the kernel and
   initramfs the entry names are verified to exist. This is the most valuable
   check in the program: a missing file is otherwise discovered at a firmware

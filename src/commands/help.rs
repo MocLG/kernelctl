@@ -108,11 +108,13 @@ kernelctl is built in four layers.
   tui/       The interactive interface, driving exactly the same command layer
              as the CLI, so the two can never diverge in behaviour.
 
-Every configuration write copies the original to a .bak file, writes a
-temporary file in the same directory, fsyncs it, renames it over the target,
-then fsyncs the directory. A crash at any point leaves either the old file or
-the new one, never a truncated one. Before changing which entry boots,
-kernelctl verifies the kernel and initramfs it names are actually on disk.";
+Every configuration write copies the file's previous contents to a .bak file,
+writes a temporary file in the same directory, fsyncs it, renames it over the
+target, then fsyncs the directory. A crash at any point leaves either the old
+file or the new one, never a truncated one. That .bak is one step of undo and
+is replaced on every write - use `kernelctl backup` for a copy that survives
+further changes. Before changing which entry boots, kernelctl verifies the
+kernel and initramfs it names are actually on disk.";
 
 pub fn run(app: &App) -> Result<()> {
     let _ = app;
