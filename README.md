@@ -26,31 +26,27 @@ statically linked and depend on nothing at all, so they run on any distribution 
 of its glibc version:
 
 ```sh
-curl -fsSLO https://github.com/MocLG/kernelctl/releases/download/v1.0.0/kernelctl-v1.0.0-x86_64-unknown-linux-musl.tar.gz
-tar xzf kernelctl-v1.0.0-x86_64-unknown-linux-musl.tar.gz
-sudo install -m755 kernelctl-v1.0.0-x86_64-unknown-linux-musl/kernelctl /usr/local/bin/kernelctl
+curl -fsSLO https://github.com/MocLG/kernelctl/releases/latest/download/kernelctl-x86_64-unknown-linux-musl.tar.gz
+tar xzf kernelctl-x86_64-unknown-linux-musl.tar.gz
+sudo install -m755 kernelctl-*/kernelctl /usr/local/bin/kernelctl
 kernelctl status
 ```
 
-Asset names carry the version, so there is no fixed "latest" URL to hard-code. To
-always fetch the newest release, resolve the tag first:
-
-```sh
-tag=$(curl -fsSL https://api.github.com/repos/MocLG/kernelctl/releases/latest \
-      | grep -m1 '"tag_name"' | cut -d'"' -f4)
-curl -fsSLO "https://github.com/MocLG/kernelctl/releases/download/$tag/kernelctl-$tag-x86_64-unknown-linux-musl.tar.gz"
-```
+Every release also carries the same archives under versioned names
+(`kernelctl-v1.1.0-x86_64-unknown-linux-musl.tar.gz`) — use those to pin a version.
 
 Builds are published for `x86_64` and `aarch64` (glibc and musl) and for `armv7` (musl);
 substitute the target you want. Verify a download against the `SHA256SUMS` file attached
-to the same release — note that a mistyped asset name returns an HTML error page rather
-than failing outright, which is what a checksum mismatch on a fresh download usually means
-(`curl -f` above turns that into a clean failure instead):
+to the same release, which covers both the versioned and unversioned names:
 
 ```sh
-curl -fsSLO https://github.com/MocLG/kernelctl/releases/download/v1.0.0/SHA256SUMS
+curl -fsSLO https://github.com/MocLG/kernelctl/releases/latest/download/SHA256SUMS
 sha256sum -c SHA256SUMS --ignore-missing
 ```
+
+`curl -f` matters here: without it a mistyped asset name silently writes GitHub's HTML
+error page into the `.tar.gz`, which then surfaces as a checksum mismatch that looks like
+a corrupted download.
 
 Every push also uploads a binary to its CI run, which is useful for testing an unreleased
 change; those expire after 14 days, so prefer a release for anything permanent.
