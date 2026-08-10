@@ -86,6 +86,11 @@ pub fn backup(app: &App, output: Option<&Path>) -> Result<()> {
         PathBuf::from(format!("kernelctl-backup-{}-{stamp}.tar.gz", app.host.hostname))
     });
 
+    // Report where it went, not just what it is called. This is the file
+    // someone reaches for after a bad boot, quite possibly from a different
+    // directory or a rescue shell, so a bare name is not enough to find it.
+    let path = absolute(&path);
+
     let manifest = Manifest {
         version: 1,
         created: time::Utc::now().format_minutes(),
@@ -133,6 +138,22 @@ pub fn backup(app: &App, output: Option<&Path>) -> Result<()> {
 }
 
 /// Remove duplicates, following symlinks so the same file is not stored twice.
+/// Make a path absolute without requiring it to exist yet.
+///
+/// `canonicalize` cannot be used here: the archive has not been written at the
+/// point its name is reported, and it also resolves symlinks, which would show
+/// the user a path they did not ask for.
+fn absolute(path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+    match std::env::current_dir() {
+        Ok(cwd) => cwd.join(path),
+        // Without a working directory the relative name is all there is.
+        Err(_) => path.to_path_buf(),
+    }
+}
+
 fn dedupe(paths: Vec<PathBuf>) -> Vec<PathBuf> {
     let mut seen: Vec<PathBuf> = Vec::new();
     let mut out = Vec::new();
