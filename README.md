@@ -122,6 +122,28 @@ kernelctl wrote is the file the bootloader reads.
 system's `/boot`, its `/etc/default/grub` and its firmware boot entries are all
 excluded. That is what makes it safe for inspecting a mounted image.
 
+## Machine-readable output
+
+`--json` prints an array of entries. The fields worth scripting against:
+
+| Field | Meaning |
+|---|---|
+| `id` | stable identifier, also accepted by `set-default` and friends |
+| `title`, `version`, `arch` | as shown in `list` |
+| `kernel`, `initrds`, `devicetree`, `cmdline` | resolved absolute paths, and the command line |
+| `state` | object of named booleans — `default`, `oneshot`, `running`, `broken`, `recovery`, `disabled`, `submenu`, `chainload`, `efi_stub`, `foreign_arch`, `unified` |
+| `built` | build time as RFC 3339 UTC, or `null` |
+| `loader`, `source`, `native_id` | which bootloader it came from, and how that loader names it |
+
+```sh
+kernelctl --json list | jq -r '.[] | select(.state.broken) | .id'
+```
+
+**Stability:** within a major version, fields are added but not removed or
+retyped, so match on names and ignore what you do not recognise. `flags` (a raw
+bitfield) and `build_time` (an internal timestamp rendering) are kept only for
+compatibility with 1.0 — prefer `state` and `built`, which replace them.
+
 ## Interactive interface
 
 Running `kernelctl` with no arguments opens a terminal interface with a header

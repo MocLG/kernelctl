@@ -246,6 +246,29 @@ impl EntryFlags {
         }
     }
 
+    /// Every flag as a `name -> bool` pair, for machine-readable output.
+    ///
+    /// The raw bitfield is an implementation detail; a consumer should not have
+    /// to know that bit 4 means BROKEN, nor break when the bits are renumbered.
+    pub fn as_map(self) -> BTreeMap<&'static str, bool> {
+        Self::ALL.iter().map(|(flag, name)| (*name, self.contains(*flag))).collect()
+    }
+
+    /// Flag/name pairs, in bit order.
+    const ALL: [(EntryFlags, &'static str); 11] = [
+        (EntryFlags::DEFAULT, "default"),
+        (EntryFlags::ONESHOT, "oneshot"),
+        (EntryFlags::RUNNING, "running"),
+        (EntryFlags::EFI_STUB, "efi_stub"),
+        (EntryFlags::BROKEN, "broken"),
+        (EntryFlags::FOREIGN_ARCH, "foreign_arch"),
+        (EntryFlags::UNIFIED, "unified"),
+        (EntryFlags::RECOVERY, "recovery"),
+        (EntryFlags::SUBMENU, "submenu"),
+        (EntryFlags::CHAINLOAD, "chainload"),
+        (EntryFlags::DISABLED, "disabled"),
+    ];
+
     /// Badges in display order, most significant to the user first.
     pub fn badges(self) -> Vec<&'static str> {
         let mut out = Vec::new();

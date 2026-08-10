@@ -94,6 +94,16 @@ impl Utc {
         format!("{:04}-{:02}-{:02}", self.year, self.month, self.day)
     }
 
+    /// `2026-08-08T14:03:52Z` - RFC 3339, for machine-readable output.
+    ///
+    /// Always UTC, so consumers never have to guess an offset.
+    pub fn format_rfc3339(&self) -> String {
+        format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+            self.year, self.month, self.day, self.hour, self.minute, self.second
+        )
+    }
+
     /// `20260808-140352` - safe for use inside a filename.
     pub fn format_stamp(&self) -> String {
         format!(

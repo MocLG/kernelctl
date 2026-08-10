@@ -26,6 +26,34 @@ use crate::ui::table::{Column, Table};
 
 use super::{entries, print_json, App};
 
+/// A boot entry as `--json` presents it.
+///
+/// The struct itself is flattened in unchanged, so every field 1.0 emitted is
+/// still there and nothing that reads it breaks. Two additions make it usable
+/// without knowing kernelctl's internals: `state` names the flags that were
+/// only reachable as bits of an integer, and `built` is the build time as
+/// RFC 3339 rather than the serde rendering of a `SystemTime`.
+#[derive(serde::Serialize)]
+struct JsonEntry<'a> {
+    #[serde(flatten)]
+    entry: &'a BootEntry,
+    state: std::collections::BTreeMap<&'static str, bool>,
+    built: Option<String>,
+}
+
+fn as_json(entries: &[BootEntry]) -> Vec<JsonEntry<'_>> {
+    entries
+        .iter()
+        .map(|entry| JsonEntry {
+            entry,
+            state: entry.flags.as_map(),
+            built: entry
+                .build_time
+                .map(|t| crate::util::time::Utc::from_system_time(t).format_rfc3339()),
+        })
+        .collect()
+}
+
 pub fn run(app: &App, pattern: Option<&str>, long: bool) -> Result<()> {
     let mut found = app.entries()?;
 
@@ -34,7 +62,7 @@ pub fn run(app: &App, pattern: Option<&str>, long: bool) -> Result<()> {
     }
 
     if app.args.json {
-        return print_json(&found);
+        return print_json(&as_json(&found));
     }
 
     if found.is_empty() {
@@ -198,4 +226,41 @@ pub fn loaders(app: &App) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{EntryFlags, LoaderKind};
+
+    #[test]
+    fn json_keeps_every_field_1_0_emitted_and_adds_named_state() {
+        let mut entry =
+            BootEntry::new(LoaderKind::SystemdBoot, "/boot/loader/a.conf", "a", "Arch Linux");
+        entry.flags.insert(EntryFlags::DEFAULT);
+        entry.flags.insert(EntryFlags::RUNNING);
+        entry.build_time = Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_786_355_956));
+
+        let json = serde_json::to_value(as_json(std::slice::from_ref(&entry))).unwrap();
+        let first = &json[0];
+
+        // Anything parsing 1.0 output must keep working, so the original
+        // fields have to survive alongside the new ones.
+        assert_eq!(first["id"], entry.id.as_str());
+        assert!(first["flags"].is_number(), "the raw bitfield was dropped");
+        assert!(first["build_time"].is_object(), "the original build_time was dropped");
+
+        // And the additions have to be usable without knowing the bit layout.
+        assert_eq!(first["state"]["default"], true);
+        assert_eq!(first["state"]["running"], true);
+        assert_eq!(first["state"]["broken"], false);
+        assert_eq!(first["built"], "2026-08-10T09:59:16Z");
+    }
+
+    #[test]
+    fn an_entry_without_a_build_time_reports_built_as_null() {
+        let entry = BootEntry::new(LoaderKind::EfiStub, "/sys/firmware", "Boot0001", "Firmware");
+        let json = serde_json::to_value(as_json(std::slice::from_ref(&entry))).unwrap();
+        assert!(json[0]["built"].is_null());
+    }
 }
