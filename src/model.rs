@@ -416,28 +416,53 @@ impl BootEntry {
         split_cmdline(&self.cmdline)
     }
 
+    /// Is `pattern` the id, a prefix of it, or the part that distinguishes it?
+    ///
+    /// Ids read `<loader>-<hash>`, so the hash is the only part that tells two
+    /// entries apart and is exactly what someone copies out of `list`. Matching
+    /// the prefix alone made that half unusable.
+    fn id_matches(&self, needle: &str) -> bool {
+        let id = self.id.to_ascii_lowercase();
+        if id == needle || id.starts_with(needle) {
+            return true;
+        }
+        // Only the hash after the last '-', so "boot" does not match every
+        // systemd-boot entry through the loader name.
+        id.rsplit('-').next().is_some_and(|hash| hash.starts_with(needle))
+    }
+
+    /// Is `pattern` this entry's version, or the leading part of it?
+    ///
+    /// `6.9.3` has to find `6.9.3-arch1-1`: it is what `list` prints, what the
+    /// README promises works, and what anyone would type. Only whole
+    /// dot-separated components count, so `6.9` does not match `6.90`.
+    fn version_matches(&self, needle: &str) -> bool {
+        let Some(v) = &self.version else { return false };
+        let raw = v.raw.to_ascii_lowercase();
+        if raw == needle {
+            return true;
+        }
+        raw.strip_prefix(needle).is_some_and(|rest| rest.starts_with(['.', '-', '_', '+']))
+    }
+
     /// Does this entry match a user-supplied pattern? Accepts the full id, an
-    /// unambiguous id prefix, a kernel version, or a case-insensitive substring
-    /// of the title.
+    /// id prefix or its distinguishing tail, a kernel version or the leading
+    /// part of one, or a case-insensitive substring of the title.
     pub fn matches(&self, pattern: &str) -> bool {
         if pattern.is_empty() {
             return false;
         }
-        if self.id.eq_ignore_ascii_case(pattern) {
-            return true;
-        }
-        if self.id.to_ascii_lowercase().starts_with(&pattern.to_ascii_lowercase()) {
+        let needle = pattern.to_ascii_lowercase();
+
+        if self.id_matches(&needle) {
             return true;
         }
         if self.native_id == pattern {
             return true;
         }
-        if let Some(v) = &self.version {
-            if v.raw == pattern {
-                return true;
-            }
+        if self.version_matches(&needle) {
+            return true;
         }
-        let needle = pattern.to_ascii_lowercase();
         if self.title.to_ascii_lowercase().contains(&needle) {
             return true;
         }
@@ -452,20 +477,27 @@ impl BootEntry {
     /// Rank a match so exact hits beat fuzzy ones when a pattern is ambiguous.
     /// Lower is better.
     pub fn match_rank(&self, pattern: &str) -> Option<u8> {
+        let needle = pattern.to_ascii_lowercase();
+
         if self.id.eq_ignore_ascii_case(pattern) || self.native_id == pattern {
             return Some(0);
         }
-        if self.id.to_ascii_lowercase().starts_with(&pattern.to_ascii_lowercase()) {
+        if self.version.as_ref().is_some_and(|v| v.raw.eq_ignore_ascii_case(pattern)) {
             return Some(1);
         }
-        if self.version.as_ref().is_some_and(|v| v.raw == pattern) {
+        if self.id_matches(&needle) {
             return Some(2);
         }
         if self.title.eq_ignore_ascii_case(pattern) {
             return Some(3);
         }
-        if self.matches(pattern) {
+        // A version prefix ranks above a loose title or path hit: someone
+        // typing 6.9.3 means the kernel, not an entry that mentions it.
+        if self.version_matches(&needle) {
             return Some(4);
+        }
+        if self.matches(pattern) {
+            return Some(5);
         }
         None
     }
@@ -753,6 +785,70 @@ mod tests {
     fn splits_cmdline_respecting_quotes() {
         let parts = split_cmdline(r#"root=UUID=abc ro quiet opt="a b" splash"#);
         assert_eq!(parts, vec!["root=UUID=abc", "ro", "quiet", r#"opt="a b""#, "splash"]);
+    }
+
+    /// An entry with a version, as `list` would show it.
+    fn versioned(title: &str, version: &str) -> BootEntry {
+        let mut e = BootEntry::new(LoaderKind::SystemdBoot, "/boot/loader/x.conf", title, title);
+        e.version = KernelVersion::from_filename(&format!("vmlinuz-{version}"));
+        assert!(e.version.is_some(), "fixture version did not parse: {version}");
+        e
+    }
+
+    #[test]
+    fn the_leading_part_of_a_version_finds_the_entry() {
+        // What `list` prints is 6.9.3-arch1-1, but 6.9.3 is what anyone types
+        // and what the README says works.
+        let e = versioned("Older kernel", "6.9.3-arch1-1");
+        assert!(e.matches("6.9.3"));
+        assert!(e.matches("6.9"));
+        assert!(e.matches("6.9.3-arch1-1"));
+        assert!(e.match_rank("6.9.3").is_some());
+    }
+
+    #[test]
+    fn a_version_prefix_stops_at_a_component_boundary() {
+        // Otherwise 6.9 would also select 6.90, which is a different kernel.
+        let e = versioned("Newer", "6.90.1-arch1-1");
+        assert!(!e.matches("6.9"));
+        assert!(e.matches("6.90"));
+    }
+
+    #[test]
+    fn an_id_can_be_given_by_the_part_that_distinguishes_it() {
+        // The hash is the only half that tells two entries apart, so it has to
+        // be usable on its own.
+        let e = BootEntry::new(LoaderKind::SystemdBoot, "/boot/loader/x.conf", "x", "Arch");
+        let hash = e.id.rsplit('-').next().unwrap().to_string();
+
+        assert!(e.matches(&e.id));
+        assert!(e.matches(&hash));
+        assert!(e.matches(&hash[..2]));
+        assert!(e.matches("systemd-boot-"));
+    }
+
+    #[test]
+    fn the_loader_name_alone_is_not_treated_as_the_distinguishing_part() {
+        let e = BootEntry::new(LoaderKind::SystemdBoot, "/boot/loader/x.conf", "x", "Arch");
+        // "boot" is a component of every systemd-boot id, so matching it as a
+        // hash would make every entry a candidate.
+        assert!(!e.id.rsplit('-').next().unwrap().starts_with("boot"));
+        assert!(!e.matches("zzzz"));
+    }
+
+    #[test]
+    fn an_exact_version_outranks_an_entry_that_merely_mentions_it() {
+        let exact = versioned("Arch Linux", "6.9.3-arch1-1");
+        let mentions = BootEntry::new(
+            LoaderKind::SystemdBoot,
+            "/boot/loader/y.conf",
+            "y",
+            "Rescue for 6.9.3-arch1-1",
+        );
+        assert!(
+            exact.match_rank("6.9.3-arch1-1") < mentions.match_rank("6.9.3-arch1-1"),
+            "the entry that is that version must win over one that names it"
+        );
     }
 
     #[test]
