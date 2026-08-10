@@ -130,6 +130,14 @@ jobs:
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           ( cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256" )
 
+          # A second copy without the version in its name, so the fixed URL
+          # https://github.com/.../releases/latest/download/kernelctl-<target>.tar.gz
+          # resolves. Without it that URL 404s and curl writes the error page
+          # into the .tar.gz, which then fails checksum verification for a
+          # reason that looks nothing like the actual problem.
+          alias="kernelctl-${{ matrix.target }}"
+          cp "dist/$name.tar.gz" "dist/$alias.tar.gz"
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
